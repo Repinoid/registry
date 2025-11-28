@@ -1,0 +1,45 @@
+# config/samples/registry_v1_nifiregistry.yaml
+
+apiVersion: registry.nifi.oper/v1
+kind: NifiRegistry
+metadata:
+  name: nifiregistry-sample
+spec:
+  # Настройки развертывания
+  size: 1
+  image:
+    repository: apache/nifi-registry
+    tag: 1.24.0
+
+  # --- ОБЯЗАТЕЛЬНЫЕ ПОЛЯ TLS ---
+  tls:
+    enabled: true           # Required value
+    port: 8443
+    host: nifiregistry-sample-svc.default.svc.cluster.local # Required value (Имя Service)
+    keystorePassword: changeit # Required value (Пароль по умолчанию для Keystore)
+    truststorePassword: changeit # Required value (Пароль по умолчанию для Truststore)
+    adminIdentity: "admin-registry@keycloak.local"
+
+  # Настройки Keycloak OIDC
+  keycloak:
+    discoveryUrl: "https://keycloak:8443/realms/nifi-registry/.well-known/openid-configuration"
+    clientId: "nifi-registry-client"
+    claimIdentifyingUser: "preferred_username"
+    clientSecretName: nifiregistry-keycloak-secret # Required value (Имя Secret для Client Secret)
+
+  # Настройки Flow Storage (хранение версий потоков)
+  flowStorage:
+    enabled: false # Отключаем Flow Storage, чтобы избежать проблем с PVC на этом шаге отладки
+    size: 5Gi
+    storageClass: standard
+
+  # ------------------------------------------------------------------
+  # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL)
+  # ------------------------------------------------------------------
+  database:
+    enabled: true
+    url: jdbc:postgresql://postgres:5432/nifiregistry 
+    driverClass: org.postgresql.Driver
+    username: nifiregistry
+    secretName: nifiregistry-db-secret # Required value (Имя Secret для пароля БД)
+    

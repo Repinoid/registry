@@ -1,0 +1,158 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: nifiregistries.registry.nifi.oper
+spec:
+  group: registry.nifi.oper
+  names:
+    kind: NifiRegistry
+    listKind: NifiRegistryList
+    plural: nifiregistries
+    singular: nifiregistry
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NifiRegistrySpec defines the desired state of NifiRegistry
+            properties:
+              database:
+                description: DatabaseSpec defines the external PostgreSQL database
+                  connection
+                properties:
+                  driverClass:
+                    type: string
+                  enabled:
+                    type: boolean
+                  secretName:
+                    type: string
+                  url:
+                    type: string
+                  username:
+                    type: string
+                required:
+                - driverClass
+                - enabled
+                - secretName
+                - url
+                - username
+                type: object
+              flowStorage:
+                description: PersistenceSpec defines the volume persistence properties
+                properties:
+                  enabled:
+                    type: boolean
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: Используем resource.Quantity, как в рабочем NiFi
+                      Operator
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClass:
+                    type: string
+                required:
+                - enabled
+                - size
+                type: object
+              image:
+                description: ImageSpec defines the container image properties
+                properties:
+                  pullPolicy:
+                    type: string
+                  repository:
+                    type: string
+                  tag:
+                    type: string
+                required:
+                - repository
+                - tag
+                type: object
+              keycloak:
+                description: KeycloakSpec defines the OIDC connection properties using
+                  Keycloak
+                properties:
+                  claimIdentifyingUser:
+                    type: string
+                  clientId:
+                    type: string
+                  clientSecretName:
+                    type: string
+                  discoveryUrl:
+                    type: string
+                required:
+                - clientId
+                - clientSecretName
+                - discoveryUrl
+                type: object
+              size:
+                format: int32
+                type: integer
+              tls:
+                description: TlsSpec defines the TLS properties for security configuration
+                properties:
+                  adminIdentity:
+                    type: string
+                  clientAuth:
+                    type: string
+                  enabled:
+                    type: boolean
+                  host:
+                    type: string
+                  keystorePassword:
+                    type: string
+                  port:
+                    format: int32
+                    type: integer
+                  truststorePassword:
+                    type: string
+                required:
+                - adminIdentity
+                - enabled
+                - host
+                - keystorePassword
+                - port
+                - truststorePassword
+                type: object
+            required:
+            - database
+            - flowStorage
+            - image
+            - keycloak
+            - size
+            - tls
+            type: object
+          status:
+            description: NifiRegistryStatus defines the observed state of NifiRegistry
+            properties:
+              state:
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
