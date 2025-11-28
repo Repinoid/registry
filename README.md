@@ -1,4 +1,26 @@
-# nreg-oper
+
+# Лучший вариант - смотреть ВСЕ логи и искать ошибки
+kl $(kubectl get pods -l app=nifiregistry-sample -o name | head -1) --tail=50 | grep -E "(ERROR|Error|Exception|Failed|Caused by)"
+
+# Или конкретно Spring/DB ошибки:
+kl $(kubectl get pods -l app=nifiregistry-sample -o name | head -1) --tail=50 | grep -E "(Error creating bean|nifi.registry.db|DataSource)"
+
+# Самый простой - просто все логи:
+kl $(kubectl get pods -l app=nifiregistry-sample -o name | head -1) --tail=50
+
+kl -l app=nifiregistry-sample --tail=50 | grep -E "(ERROR|Error|Exception)"
+
+
+<!-- kubectl apply -f config/samples/nifi_v1alpha1_nificluster.yaml -->
+ kubectl get pods -l app=nifi -w
+ kgp -l statefulset.kubernetes.io/pod-name -w
+ 
+
+$(kubectl get pods -l app=nifi -o name | head -1)
+
+kubectl logs $(kubectl get pods -l app=nifiregistry-sample -o name | head -1) --all-containers -p
+
+# oper
 // TODO(user): Add simple overview of use/purpose
 
 ## Description
@@ -18,13 +40,13 @@ kubectl apply -f config/samples/
 2. Build and push your image to the location specified by `IMG`:
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/nreg-oper:tag
+make docker-build docker-push IMG=<some-registry>/oper:tag
 ```
 
 3. Deploy the controller to the cluster with the image specified by `IMG`:
 
 ```sh
-make deploy IMG=<some-registry>/nreg-oper:tag
+make deploy IMG=<some-registry>/oper:tag
 ```
 
 ### Uninstall CRDs

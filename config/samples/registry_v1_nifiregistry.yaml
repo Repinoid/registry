@@ -13,8 +13,8 @@ spec:
 
   # --- ОБЯЗАТЕЛЬНЫЕ ПОЛЯ TLS ---
   tls:
-    enabled: true           # Required value
-    port: 8443
+    enabled: false
+    port: 8080
     host: nifiregistry-sample-svc.default.svc.cluster.local # Required value (Имя Service)
     keystorePassword: changeit # Required value (Пароль по умолчанию для Keystore)
     truststorePassword: changeit # Required value (Пароль по умолчанию для Truststore)
@@ -37,7 +37,8 @@ spec:
   # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL)
   # ------------------------------------------------------------------
   database:
-    enabled: true
+    enabled: false
+    # enabled: true
     url: jdbc:postgresql://postgres:5432/nifiregistry 
     driverClass: org.postgresql.Driver
     username: nifiregistry
