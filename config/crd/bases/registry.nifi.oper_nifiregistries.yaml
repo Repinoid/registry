@@ -40,7 +40,8 @@ spec:
             description: NifiRegistrySpec определяет желаемое состояние NifiRegistry
             properties:
               database:
-                description: DatabaseSpec определяет настройки внешней БД
+                description: Конфигурация подключения к внешней БД (используется NiFi
+                  Registry)
                 properties:
                   driverClass:
                     type: string
@@ -76,8 +77,7 @@ spec:
                 - size
                 type: object
               image:
-                description: 'Image, Repository, Tag (ИСПРАВЛЕНО: используем именованную
-                  структуру)'
+                description: Image, Repository, Tag
                 properties:
                   repository:
                     type: string
@@ -95,6 +95,23 @@ spec:
                     type: string
                   discoveryUrl:
                     type: string
+                type: object
+              postgresql:
+                description: Конфигурация для развертывания PostgreSQL (управляется
+                  оператором)
+                properties:
+                  enabled:
+                    default: false
+                    type: boolean
+                  image:
+                    type: string
+                  size:
+                    default: 1Gi
+                    type: string
+                  storageClass:
+                    type: string
+                required:
+                - enabled
                 type: object
               resources:
                 description: Resources определяет ограничения ресурсов (CPU/Memory)

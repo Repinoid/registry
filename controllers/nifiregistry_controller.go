@@ -51,10 +51,13 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 2. Create or Update Database Secret (Только если БД включена) <-- ВОЗВРАЩЕНО
+	// 2. Create or Update Database Secret (Только если БД включена)
 	if nifiRegistry.Spec.Database.Enabled {
+		// !!! ПРИМЕЧАНИЕ: secretForNifiRegistry и логика создания Secret не включены в этот файл,
+		// но предполагаются существующими в другом месте или должны быть добавлены.
+		// Сейчас мы ориентируемся на логику, которую вы предоставили в Шаге 74.
+		// Если SecretName не указан, Secret не будет создан.
 		secret := secretForNifiRegistry(nifiRegistry, r.Scheme)
-		// SecretForNifiRegistry возвращает nil, если SecretName пуст.
 		if secret != nil {
 			// ControllerReference установлен в helper, если SecretName существует.
 			foundSecret := &corev1.Secret{}
@@ -73,7 +76,30 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// 3. Create or Update Service
+	// 3. Handle PostgreSQL Service (if enabled) <-- НОВЫЙ БЛОК
+	if nifiRegistry.Spec.PostgreSQL.Enabled {
+		postgresSvc := serviceForPostgreSQL(nifiRegistry)
+		if err := controllerutil.SetControllerReference(nifiRegistry, postgresSvc, r.Scheme); err != nil {
+			return ctrl.Result{}, err
+		}
+		foundPostgresSvc := &corev1.Service{}
+		err = r.Get(ctx, types.NamespacedName{Name: postgresSvc.Name, Namespace: postgresSvc.Namespace}, foundPostgresSvc)
+
+		if err != nil && errors.IsNotFound(err) {
+			log.Info("Creating a new PostgreSQL Service", "Service.Namespace", postgresSvc.Namespace, "Service.Name", postgresSvc.Name)
+			err = r.Create(ctx, postgresSvc)
+			if err != nil {
+				log.Error(err, "Failed to create PostgreSQL Service")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{Requeue: true}, nil
+		} else if err != nil {
+			log.Error(err, "Failed to get PostgreSQL Service")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// 4. Create or Update Service (для NiFi Registry)
 	svc := serviceForNifiRegistry(nifiRegistry, r.Scheme)
 	// ... (логика создания/обновления Service)
 	if err := controllerutil.SetControllerReference(nifiRegistry, svc, r.Scheme); err != nil {
@@ -92,7 +118,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 4. Create or Update PVC (только если FlowStorage задан)
+	// 5. Create or Update PVC (только если FlowStorage задан)
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		pvc := pvcForNifiRegistry(nifiRegistry, r.Scheme)
 		// ... (логика создания/обновления PVC)
@@ -113,7 +139,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// 5. Create or Update Deployment
+	// 6. Create or Update Deployment (для NiFi Registry)
 	dep := deploymentForNifiRegistry(nifiRegistry, r.Scheme)
 	// ... (логика создания/обновления Deployment)
 	if err := controllerutil.SetControllerReference(nifiRegistry, dep, r.Scheme); err != nil {

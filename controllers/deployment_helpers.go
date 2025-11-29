@@ -24,17 +24,19 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 	// Инициализация списков для Volumes, VolumeMounts и InitContainers
 	volumes := []corev1.Volume{}
 	volumeMounts := []corev1.VolumeMount{}
-	initContainers := []corev1.Container{} // <-- Инициализация списка Init-контейнеров
+	initContainers := []corev1.Container{}
 
-	// Общие переменные для томов NiFi Registry
+	// Общие переменные
 	flowStorageVolumeName := "flow-storage-volume"
 	flowStorageMountPath := "/opt/nifi-registry/nifi-registry-current/flow_storage"
 
-	// Если Flow Storage включен, добавляем PVC volume, mount и Init-контейнер <-- ВОЗВРАЩЕНО
+	// 1. Volumes
+
+	// Если Flow Storage включен, добавляем PVC volume и Init-контейнер
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		pvcName := fmt.Sprintf("%s-flow", nifiRegistry.Name)
 
-		// 1. Volumes
+		// Добавляем PVC Volume
 		volumes = append(volumes, corev1.Volume{
 			Name: flowStorageVolumeName,
 			VolumeSource: corev1.VolumeSource{
@@ -45,16 +47,16 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 			},
 		})
 
-		// 2. Volume Mounts для основного контейнера
+		// 2. Volume Mounts для Flow Storage
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      flowStorageVolumeName,
 			MountPath: flowStorageMountPath,
 		})
 
-		// 3. Init Container для chown (изменение прав доступа) <-- ДОБАВЛЕНО
+		// 3. Init Container для chown
 		initContainers = append(initContainers, corev1.Container{
 			Name:    "init-data-chown",
-			Image:   "busybox", // Используем легковесный образ
+			Image:   "busybox",
 			Command: []string{"sh", "-c", "chown -R 1000:1000 " + flowStorageMountPath},
 			VolumeMounts: []corev1.VolumeMount{
 				{
@@ -64,15 +66,50 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 			},
 		})
 	}
-
-	// 4. Environment Variables (Добавляем массив переменных окружения)
+	
+	// 4. Environment Variables (Настройка сети и внешней БД)
 	envVars := []corev1.EnvVar{
 		{
 			Name:  "NIFI_REGISTRY_WEB_HTTP_HOST",
-			Value: "0.0.0.0", // Исправляем ошибку Connection Refused
+			Value: "0.0.0.0", 
 		},
 	}
 
+	// Если внешняя БД включена, добавляем соответствующие переменные окружения
+	if nifiRegistry.Spec.Database.Enabled {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "NIFI_REGISTRY_DB_IMPLEMENTATION",
+			Value: "postgresql", // Мы предполагаем, что внешняя БД — это PostgreSQL
+		})
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "NIFI_REGISTRY_DB_URL",
+			Value: nifiRegistry.Spec.Database.Url,
+		})
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "NIFI_REGISTRY_DB_DRIVER_CLASS",
+			Value: nifiRegistry.Spec.Database.DriverClass,
+		})
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "NIFI_REGISTRY_DB_USERNAME",
+			Value: nifiRegistry.Spec.Database.Username,
+		})
+		
+		// Пароль берем из Secret, если указан SecretName
+		if nifiRegistry.Spec.Database.SecretName != "" {
+			envVars = append(envVars, corev1.EnvVar{
+				Name: "NIFI_REGISTRY_DB_PASSWORD",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: nifiRegistry.Spec.Database.SecretName,
+						},
+						Key: "password", // Предполагаем, что ключ для пароля в Secret — "password"
+					},
+				},
+			})
+		}
+	}
+	
 	// Основной контейнер NiFi Registry
 	nifiRegistryContainer := corev1.Container{
 		Name:  "nifi-registry",
@@ -85,7 +122,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 		},
 		VolumeMounts: volumeMounts,
 		Resources:    nifiRegistry.Spec.Resources,
-		Env:          envVars, // <-- ПРИМЕНЯЕМ массив envVars к контейнеру
+		Env:          envVars,
 	}
 
 	dep := &appsv1.Deployment{
@@ -104,8 +141,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					// Init-контейнеры ДОЛЖНЫ быть в PodSpec
-					InitContainers: initContainers, // <-- Используем восстановленный список
+					InitContainers: initContainers,
 					Containers: []corev1.Container{
 						nifiRegistryContainer,
 					},
