@@ -38,6 +38,7 @@ func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPas
 	var dbConfigSection string
 
 	if nifiRegistry.Spec.Database.Enabled {
+		// Конфигурация для внешней БД (PostgreSQL)
 		effectiveFlowProvider = "org.apache.nifi.registry.flow.sql.SqlFlowProvider"
 		dbConfigSection = fmt.Sprintf(`
 # Database Configuration (PostgreSQL)
@@ -49,8 +50,16 @@ nifi.registry.db.password=%s`,
 			nifiRegistry.Spec.Database.Url, nifiRegistry.Spec.Database.DriverClass,
 			nifiRegistry.Spec.Database.Username, dbPassword)
 	} else {
+		// КОНФИГУРАЦИЯ ДЛЯ H2 (Встроенная БД)
+		// NiFi Registry требует явного указания DB URL и драйвера даже для H2.
 		effectiveFlowProvider = "org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider"
-		dbConfigSection = ""
+		dbConfigSection = `
+# Database Configuration (H2 - Embedded)
+nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
+nifi.registry.db.url=jdbc:h2:./database/nifi-registry-db
+nifi.registry.db.driver.class=org.h2.Driver
+nifi.registry.db.username=sa
+nifi.registry.db.password=`
 	}
 
 	return fmt.Sprintf(`

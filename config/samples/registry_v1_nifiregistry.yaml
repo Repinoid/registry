@@ -12,7 +12,7 @@ spec:
 
   tls:
     enabled: false
-    port: 8443  # ← ИЗМЕНИ НА 8443
+    port: 8443
     host: nifiregistry-sample-svc.default.svc.cluster.local
     keystorePassword: changeit
     truststorePassword: changeit
@@ -27,18 +27,16 @@ spec:
 
   # Настройки Flow Storage (хранение версий потоков)
   flowStorage:
-    enabled: false # Отключаем Flow Storage, чтобы избежать проблем с PVC на этом шаге отладки
+    enabled: true
     size: 1Gi
-    storageClass: standard
-
+    storageClass: local-path # ИСПРАВЛЕНИЕ: Используем StorageClass, который работает в кластере
+    
   # ------------------------------------------------------------------
   # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL)
   # ------------------------------------------------------------------
   database:
-    enabled: false
-    # enabled: true
+    enabled: false # Отключено, используем H2
     url: jdbc:postgresql://postgres:5432/nifiregistry 
     driverClass: org.postgresql.Driver
     username: nifiregistry
-    secretName: nifiregistry-db-secret # Required value (Имя Secret для пароля БД)
-    
+    secretName: nifiregistry-db-secret
