@@ -6,7 +6,7 @@ import (
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 )
 
-// (Версия 11.0: Чистый KeyValue Provider + Удаление всех DB настроек H2)
+/// (Версия 12.0: Финальная фиксация H2 - Возврат всех 4 полей H2 с фиктивным паролем)
 // generateNifiRegistryProperties генерирует содержимое nifi-registry.properties
 func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPassword string) string {
 	var effectiveFlowProvider string
@@ -26,10 +26,15 @@ nifi.registry.db.password=%s`,
 			nifiRegistry.Spec.Database.Username, dbPassword)
 	} else {
 		// КОНФИГУРАЦИЯ ДЛЯ H2 (Встроенная БД)
-		// Устанавливаем ТОЛЬКО KeyValue Provider. Полностью исключаем nifi.registry.db.*.
-		// ЭТО ЕДИНСТВЕННЫЙ СПОСОБ ЗАСТАВИТЬ NIFI REGISTRY РАБОТАТЬ С H2 В 1.24.0 (без Security).
+		// Устанавливаем ВСЕ 4 поля с фиктивными, но необходимыми для синтаксиса H2 значениями.
 		effectiveFlowProvider = "org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider"
-		dbConfigSection = "" 
+		dbConfigSection = `
+# Database Configuration (H2 - Embedded)
+nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
+nifi.registry.db.url=jdbc:h2:./database/nifi-registry-db
+nifi.registry.db.driver.class=org.h2.Driver
+nifi.registry.db.username=sa
+nifi.registry.db.password=h2password` 
 	}
 
 	return fmt.Sprintf(`
@@ -52,6 +57,7 @@ nifi.registry.web.api.context.path=/nifi-registry-api
 nifi.registry.web.jetty.threads=200
 
 # Security Settings
+# ВРЕМЕННО ОТКЛЮЧЕНО
 # nifi.registry.security.user.login.identity.provider=keycloak 
 nifi.registry.security.user.login.identity.provider=
 
