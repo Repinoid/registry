@@ -5,7 +5,7 @@ package controllers
 import (
 	"fmt"
 	"os"
-	
+
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -14,10 +14,10 @@ import (
 
 // persistentVolumeClaimForFlowStorage генерирует PVC для хранения данных NiFi Registry
 func persistentVolumeClaimForFlowStorage(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
-	
+
 	// Используем значение из CR, которое является resource.Quantity.
 	storageSize := nifiRegistry.Spec.FlowStorage.Size
-	
+
 	// Проверяем, если размер равен нулю (не задан в CRD), устанавливаем значение по умолчанию 1Gi
 	// Это решает проблему типизации.
 	if storageSize.IsZero() {
@@ -25,17 +25,17 @@ func persistentVolumeClaimForFlowStorage(nifiRegistry *registryv1.NifiRegistry) 
 		if err != nil {
 			// Это не должно произойти
 			fmt.Fprintf(os.Stderr, "FATAL: Could not parse default storage size: %v\n", err)
-			storageSize = resource.MustParse("1Gi") 
+			storageSize = resource.MustParse("1Gi")
 		} else {
 			storageSize = defaultSize
 		}
 	}
-	
+
 	pvcName := fmt.Sprintf("%s-flow", nifiRegistry.Name)
-	
-	// StorageClassName УДАЛЕНО: Чтобы избежать ошибки 'undefined', мы исключаем это поле, 
+
+	// StorageClassName УДАЛЕНО: Чтобы избежать ошибки 'undefined', мы исключаем это поле,
 	// поскольку его нет в вашей структуре FlowStorageSpec.
-	
+
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pvcName,
@@ -51,10 +51,10 @@ func persistentVolumeClaimForFlowStorage(nifiRegistry *registryv1.NifiRegistry) 
 					corev1.ResourceStorage: storageSize,
 				},
 			},
-			// StorageClassName: nil // Оставляем nil, чтобы использовался класс по умолчанию, 
+			// StorageClassName: nil // Оставляем nil, чтобы использовался класс по умолчанию,
 			// или не указываем его явно
 		},
 	}
-	
+
 	return pvc
 }
