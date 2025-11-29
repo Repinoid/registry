@@ -6,7 +6,7 @@ import (
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 )
 
-// (Версия 15.0: Официальные H2-дефолты)
+// (Версия 16.0: Единый SQL Flow Provider для H2)
 // generateNifiRegistryProperties генерирует содержимое nifi-registry.properties
 func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPassword string) string {
 	var effectiveFlowProvider string
@@ -26,15 +26,15 @@ nifi.registry.db.password=%s`,
 			nifiRegistry.Spec.Database.Username, dbPassword)
 	} else {
 		// КОНФИГУРАЦИЯ ДЛЯ H2 (Встроенная БД)
-		// Используем официальные значения по умолчанию для nifi.registry.db.*
-		effectiveFlowProvider = "org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider"
+		// Устанавливаем SQL Flow Provider, который использует настроенный ниже H2-бэкенд.
+		effectiveFlowProvider = "org.apache.nifi.registry.flow.sql.SqlFlowProvider"
 		dbConfigSection = `
 # Database Configuration (H2 - Embedded, official defaults)
 nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
 nifi.registry.db.url=jdbc:h2:./database/nifi-registry-primary
 nifi.registry.db.driver.class=org.h2.Driver
 nifi.registry.db.username=nifireg
-nifi.registry.db.password=nifireg` // <-- ОФИЦИАЛЬНЫЙ ДЕФОЛТ
+nifi.registry.db.password=nifireg` 
 	}
 
 	return fmt.Sprintf(`
