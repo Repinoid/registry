@@ -18,7 +18,7 @@ func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *run
 	configMapName := fmt.Sprintf("%s-config", nifiRegistry.Name)
 
 	configMapData := map[string]string{
-		// ИСПРАВЛЕНО: Корректный минимальный XML-шаблон для log4j2
+		// 1. log4j2.xml (Корректный минимальный XML)
 		"log4j2.xml": `<?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN" name="NiFiRegistry" packages="org.apache.nifi.registry.util">
     <Appenders>
@@ -33,14 +33,14 @@ func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *run
     </Loggers>
 </Configuration>
 		`,
-		// Настройки Nifi Registry
+		// 2. nifi-registry.properties (Минимальная рабочая конфигурация)
 		"nifi-registry.properties": `
 # NiFi Registry Properties
 nifi.registry.web.http.host=0.0.0.0
 nifi.registry.web.http.port=18080
 nifi.registry.web.context.path=/nifi-registry
 
-# Flow Persistence Provider
+# Flow Persistence Provider: Используем встроенное KeyValue хранилище
 nifi.registry.flow.persistence.provider.implementation=org.apache.nifi.registry.flow.keyvalue.KeyValueFlowPersistenceProvider
 nifi.registry.flow.keyvalue.flow.storage.directory=./flow_storage
 
@@ -48,13 +48,10 @@ nifi.registry.flow.keyvalue.flow.storage.directory=./flow_storage
 nifi.registry.extension.bundle.persistence.provider.implementation=org.apache.nifi.registry.extension.bundle.FileSystemExtensionBundlePersistenceProvider
 nifi.registry.extension.bundle.file.system.storage.directory=./extension_bundles
 
-# Database Configuration (если не используется env var)
-#nifi.registry.db.url=
-#nifi.registry.db.driver.class=
-#nifi.registry.db.username=
-#nifi.registry.db.password=
+# Database Configuration (Отключено - используем Derby)
+#nifi.registry.db.url=...
 
-# Security
+# Security (Отключено)
 #nifi.registry.security.user.login.identity.provider=
 `,
 	}

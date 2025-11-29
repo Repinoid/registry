@@ -1,15 +1,26 @@
-# config/samples/registry_v1_nifiregistry.yaml
-
 apiVersion: registry.nifi.oper/v1
 kind: NifiRegistry
 metadata:
   name: nifiregistry-sample
 spec:
+  # Size - количество реплик (изменено)
   size: 1
+  
+  # Используем структуру ImageSpec (изменено)
   image:
     repository: apache/nifi-registry
     tag: 1.24.0
 
+  # Resources - ДОБАВЛЕНО для устранения ошибки в Deployment Helper
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
+
+  # Tls (ОТКЛЮЧЕНО, чтобы соответствовать рабочей конфигурации)
   tls:
     enabled: false
     port: 8443
@@ -18,25 +29,24 @@ spec:
     truststorePassword: changeit
     adminIdentity: "root"
 
-  # Настройки Keycloak OIDC
+  # Настройки Keycloak OIDC (Оставлено для совместимости с CRD)
   keycloak:
     discoveryUrl: "https://keycloak:8443/realms/nifi-registry/.well-known/openid-configuration"
     clientId: "nifi-registry-client"
     claimIdentifyingUser: "preferred_username"
-    clientSecretName: nifiregistry-keycloak-secret # Required value (Имя Secret для Client Secret)
+    clientSecretName: nifiregistry-keycloak-secret
 
   # Настройки Flow Storage (хранение версий потоков)
   flowStorage:
     enabled: true
     size: 1Gi
-    storageClass: local-path # ИСПРАВЛЕНИЕ: Используем StorageClass, который работает в кластере
-    
-  # ------------------------------------------------------------------
-  # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL)
-  # ------------------------------------------------------------------
+    storageClass: standard # Используем стандартный StorageClass
+
+  # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL) (ОТКЛЮЧЕНО)
   database:
-    enabled: false # Отключено, используем H2
+    enabled: false # Используем встроенную БД Derby
     url: jdbc:postgresql://postgres:5432/nifiregistry 
     driverClass: org.postgresql.Driver
     username: nifiregistry
     secretName: nifiregistry-db-secret
+    

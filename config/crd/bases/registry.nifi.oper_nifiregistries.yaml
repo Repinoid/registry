@@ -17,7 +17,7 @@ spec:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: NifiRegistry is the Schema for the nifiregistries API
+        description: NifiRegistry — это Custom Resource для деплоя NiFi Registry.
         properties:
           apiVersion:
             description: |-
@@ -37,14 +37,15 @@ spec:
           metadata:
             type: object
           spec:
-            description: NifiRegistrySpec defines the desired state of NifiRegistry
+            description: NifiRegistrySpec определяет желаемое состояние NifiRegistry
             properties:
               database:
-                description: Database configuration
+                description: DatabaseSpec определяет настройки внешней БД
                 properties:
                   driverClass:
                     type: string
                   enabled:
+                    default: false
                     type: boolean
                   secretName:
                     type: string
@@ -53,16 +54,14 @@ spec:
                   username:
                     type: string
                 required:
-                - driverClass
                 - enabled
-                - secretName
-                - url
-                - username
                 type: object
               flowStorage:
-                description: Flow Storage configuration
+                description: FlowStorageSpec определяет спецификацию Persistent Volume
+                  Claim (PVC)
                 properties:
                   enabled:
+                    default: true
                     type: boolean
                   size:
                     anyOf:
@@ -75,25 +74,18 @@ spec:
                 required:
                 - enabled
                 - size
-                - storageClass
                 type: object
               image:
-                description: Image definition for NiFi Registry
+                description: 'Image, Repository, Tag (ИСПРАВЛЕНО: используем именованную
+                  структуру)'
                 properties:
-                  pullPolicy:
-                    description: PullPolicy describes a policy for if/when to pull
-                      a container image
-                    type: string
                   repository:
                     type: string
                   tag:
                     type: string
-                required:
-                - repository
-                - tag
                 type: object
               keycloak:
-                description: Keycloak OIDC configuration
+                description: KeycloakSpec определяет настройки Keycloak OIDC
                 properties:
                   claimIdentifyingUser:
                     type: string
@@ -103,61 +95,94 @@ spec:
                     type: string
                   discoveryUrl:
                     type: string
-                required:
-                - claimIdentifyingUser
-                - clientId
-                - clientSecretName
-                - discoveryUrl
                 type: object
-              port:
-                default: 8080
-                description: Port defines the primary HTTP port for the NiFi Registry
-                  service (default is 8080).
-                format: int32
-                type: integer
+              resources:
+                description: Resources определяет ограничения ресурсов (CPU/Memory)
+                  для контейнера NiFi Registry.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+
+                      This is an alpha field and requires enabling the
+                      DynamicResourceAllocation feature gate.
+
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
               size:
-                description: Size is the number of desired NiFi Registry replicas
+                default: 1
                 format: int32
+                minimum: 1
                 type: integer
               tls:
-                description: TLS configuration
+                description: TlsSpec определяет настройки TLS
                 properties:
                   adminIdentity:
                     type: string
                   enabled:
+                    default: false
                     type: boolean
                   host:
                     type: string
                   keystorePassword:
                     type: string
                   port:
+                    default: 8443
                     format: int32
                     type: integer
                   truststorePassword:
                     type: string
                 required:
-                - adminIdentity
                 - enabled
-                - host
-                - keystorePassword
-                - port
-                - truststorePassword
                 type: object
-            required:
-            - database
-            - flowStorage
-            - image
-            - keycloak
-            - size
-            - tls
             type: object
           status:
-            description: NifiRegistryStatus defines the observed state of NifiRegistry
+            description: NifiRegistryStatus определяет наблюдаемое состояние NifiRegistry
             properties:
               conditions:
-                description: |-
-                  Represents the observations of a NifiRegistry's current state.
-                  Known type-specific conditions are defined below.
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -226,14 +251,6 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
-              state:
-                description: |-
-                  State represents the current high-level state of the NiFi Registry resource.
-                  For example: Creating, Running, Failed, Upgrading.
-                type: string
             type: object
         type: object
     served: true

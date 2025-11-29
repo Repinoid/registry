@@ -1,18 +1,4 @@
-/*
-Copyright 2024 Repinoid.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// api/v1/nifiregistry_types.go
 
 package v1
 
@@ -22,99 +8,92 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// --- Вспомогательные структуры ---
 
-// NifiRegistrySpec defines the desired state of NifiRegistry
-type NifiRegistrySpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make manifests" to regenerate code after modifying this file
+// TlsSpec определяет настройки TLS
+type TlsSpec struct {
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled"`
 
-	// Size is the number of desired NiFi Registry replicas
-	Size int32 `json:"size"`
-
-	// Port defines the primary HTTP port for the NiFi Registry service (default is 8080).
-	// +optional
-	// +kubebuilder:default:=8080
+	// +kubebuilder:default=8443
 	Port int32 `json:"port,omitempty"`
 
-	// Image definition for NiFi Registry
-	Image ImageSpec `json:"image"`
+	Host string `json:"host,omitempty"`
 
-	// TLS configuration
-	Tls TlsSpec `json:"tls"`
+	KeystorePassword   string `json:"keystorePassword,omitempty"`
+	TruststorePassword string `json:"truststorePassword,omitempty"`
 
-	// Keycloak OIDC configuration
-	Keycloak KeycloakSpec `json:"keycloak"`
-
-	// Flow Storage configuration
-	FlowStorage FlowStorageSpec `json:"flowStorage"`
-
-	// Database configuration
-	Database DatabaseSpec `json:"database"`
+	AdminIdentity string `json:"adminIdentity,omitempty"`
 }
 
-// ImageSpec defines the container image properties
-type ImageSpec struct {
-	Repository string            `json:"repository"`
-	Tag        string            `json:"tag"`
-	PullPolicy corev1.PullPolicy `json:"pullPolicy,omitempty"`
-}
-
-// TlsSpec defines TLS configuration for the NiFi Registry
-type TlsSpec struct {
-	Enabled            bool   `json:"enabled"`
-	Port               int32  `json:"port"`
-	Host               string `json:"host"`
-	KeystorePassword   string `json:"keystorePassword"`
-	TruststorePassword string `json:"truststorePassword"`
-	AdminIdentity      string `json:"adminIdentity"`
-}
-
-// KeycloakSpec defines the Keycloak OIDC settings
+// KeycloakSpec определяет настройки Keycloak OIDC
 type KeycloakSpec struct {
-	DiscoveryUrl         string `json:"discoveryUrl"`
-	ClientId             string `json:"clientId"`
-	ClaimIdentifyingUser string `json:"claimIdentifyingUser"`
-	ClientSecretName     string `json:"clientSecretName"`
+	DiscoveryUrl         string `json:"discoveryUrl,omitempty"`
+	ClientId             string `json:"clientId,omitempty"`
+	ClaimIdentifyingUser string `json:"claimIdentifyingUser,omitempty"`
+	ClientSecretName     string `json:"clientSecretName,omitempty"`
 }
 
-// FlowStorageSpec defines the persistent storage for flow versions
-type FlowStorageSpec struct {
-	Enabled      bool              `json:"enabled"`
-	Size         resource.Quantity `json:"size"`
-	StorageClass string            `json:"storageClass"`
-}
-
-// DatabaseSpec defines the external database configuration
+// DatabaseSpec определяет настройки внешней БД
 type DatabaseSpec struct {
-	Enabled     bool   `json:"enabled"`
-	Url         string `json:"url"`
-	DriverClass string `json:"driverClass"`
-	Username    string `json:"username"`
-	SecretName  string `json:"secretName"`
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled"`
+
+	Url         string `json:"url,omitempty"`
+	DriverClass string `json:"driverClass,omitempty"`
+	Username    string `json:"username,omitempty"`
+	SecretName  string `json:"secretName,omitempty"`
 }
 
-// NifiRegistryStatus defines the observed state of NifiRegistry
-type NifiRegistryStatus struct {
-	// Represents the observations of a NifiRegistry's current state.
-	// Known type-specific conditions are defined below.
-	// +patchMergeKey=type
-	// +patchStrategy=merge
-	// +listType=map
-	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMapKey:"type"`
+// FlowStorageSpec определяет спецификацию Persistent Volume Claim (PVC)
+type FlowStorageSpec struct {
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
 
-	// State represents the current high-level state of the NiFi Registry resource.
-	// For example: Creating, Running, Failed, Upgrading.
-	// +optional
-	State string `json:"state,omitempty"` // <--- ИСПРАВЛЕНИЕ: ДОБАВЛЕНО ПОЛЕ STATE
+	// +kubebuilder:validation:Required
+	Size resource.Quantity `json:"size"`
+
+	StorageClass string `json:"storageClass,omitempty"`
+}
+
+// ImageSpec определяет репозиторий и тег образа NiFi Registry
+type ImageSpec struct { // <--- ИСПРАВЛЕНИЕ: Именованная структура
+	Repository string `json:"repository,omitempty"`
+	Tag        string `json:"tag,omitempty"`
+}
+
+// --- Основная структура ---
+
+// NifiRegistrySpec определяет желаемое состояние NifiRegistry
+type NifiRegistrySpec struct {
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	Size int32 `json:"size,omitempty"`
+
+	// Image, Repository, Tag (ИСПРАВЛЕНО: используем именованную структуру)
+	Image ImageSpec `json:"image,omitempty"`
+
+	// Resources определяет ограничения ресурсов (CPU/Memory) для контейнера NiFi Registry.
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	Tls TlsSpec `json:"tls,omitempty"`
+
+	Keycloak KeycloakSpec `json:"keycloak,omitempty"`
+
+	Database DatabaseSpec `json:"database,omitempty"`
+
+	FlowStorage FlowStorageSpec `json:"flowStorage,omitempty"`
+}
+
+// NifiRegistryStatus определяет наблюдаемое состояние NifiRegistry
+type NifiRegistryStatus struct {
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// NifiRegistry is the Schema for the nifiregistries API
+// NifiRegistry — это Custom Resource для деплоя NiFi Registry.
 type NifiRegistry struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -125,7 +104,7 @@ type NifiRegistry struct {
 
 //+kubebuilder:object:root=true
 
-// NifiRegistryList contains a list of NifiRegistry
+// NifiRegistryList содержит список NifiRegistry
 type NifiRegistryList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
