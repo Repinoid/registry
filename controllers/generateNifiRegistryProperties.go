@@ -6,7 +6,7 @@ import (
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 )
 
-// (Версия 7.0: Фиксация H2-URL)
+// (Версия 8.0: Возврат всех 4 полей H2)
 // generateNifiRegistryProperties генерирует содержимое nifi-registry.properties
 func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPassword string) string {
 	var effectiveFlowProvider string
@@ -26,14 +26,15 @@ nifi.registry.db.password=%s`,
 			nifiRegistry.Spec.Database.Username, dbPassword)
 	} else {
 		// КОНФИГУРАЦИЯ ДЛЯ H2 (Встроенная БД)
-		// ВОЗВРАЩАЕМ МИНИМАЛЬНО НЕОБХОДИМЫЕ ПОЛЯ ДЛЯ АВТОРИЗАЦИОННОЙ БД (URL, Implementation, Driver),
-		// но ИСКЛЮЧАЕМ username и password.
+		// ВОЗВРАЩАЕМ ВСЕ ЧЕТЫРЕ ОБЯЗАТЕЛЬНЫХ ПОЛЯ ДЛЯ SQL Flow Persistence Provider
 		effectiveFlowProvider = "org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider"
 		dbConfigSection = `
 # Database Configuration (H2 - Embedded)
 nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
 nifi.registry.db.url=jdbc:h2:./database/nifi-registry-db
-nifi.registry.db.driver.class=org.h2.Driver`
+nifi.registry.db.driver.class=org.h2.Driver
+nifi.registry.db.username=sa
+nifi.registry.db.password=` // Пароль пустой строкой
 	}
 
 	return fmt.Sprintf(`
