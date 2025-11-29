@@ -17,6 +17,7 @@ spec:
   - name: v1
     schema:
       openAPIV3Schema:
+        description: NifiRegistry is the Schema for the nifiregistries API
         properties:
           apiVersion:
             description: |-
@@ -39,8 +40,7 @@ spec:
             description: NifiRegistrySpec defines the desired state of NifiRegistry
             properties:
               database:
-                description: DatabaseSpec defines the external PostgreSQL database
-                  connection
+                description: Database configuration
                 properties:
                   driverClass:
                     type: string
@@ -60,7 +60,7 @@ spec:
                 - username
                 type: object
               flowStorage:
-                description: PersistenceSpec defines the volume persistence properties
+                description: Flow Storage configuration
                 properties:
                   enabled:
                     type: boolean
@@ -68,8 +68,6 @@ spec:
                     anyOf:
                     - type: integer
                     - type: string
-                    description: Используем resource.Quantity, как в рабочем NiFi
-                      Operator
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   storageClass:
@@ -77,11 +75,14 @@ spec:
                 required:
                 - enabled
                 - size
+                - storageClass
                 type: object
               image:
-                description: ImageSpec defines the container image properties
+                description: Image definition for NiFi Registry
                 properties:
                   pullPolicy:
+                    description: PullPolicy describes a policy for if/when to pull
+                      a container image
                     type: string
                   repository:
                     type: string
@@ -92,8 +93,7 @@ spec:
                 - tag
                 type: object
               keycloak:
-                description: KeycloakSpec defines the OIDC connection properties using
-                  Keycloak
+                description: Keycloak OIDC configuration
                 properties:
                   claimIdentifyingUser:
                     type: string
@@ -104,19 +104,25 @@ spec:
                   discoveryUrl:
                     type: string
                 required:
+                - claimIdentifyingUser
                 - clientId
                 - clientSecretName
                 - discoveryUrl
                 type: object
+              port:
+                default: 8080
+                description: Port defines the primary HTTP port for the NiFi Registry
+                  service (default is 8080).
+                format: int32
+                type: integer
               size:
+                description: Size is the number of desired NiFi Registry replicas
                 format: int32
                 type: integer
               tls:
-                description: TlsSpec defines the TLS properties for security configuration
+                description: TLS configuration
                 properties:
                   adminIdentity:
-                    type: string
-                  clientAuth:
                     type: string
                   enabled:
                     type: boolean
@@ -148,7 +154,85 @@ spec:
           status:
             description: NifiRegistryStatus defines the observed state of NifiRegistry
             properties:
+              conditions:
+                description: |-
+                  Represents the observations of a NifiRegistry's current state.
+                  Known type-specific conditions are defined below.
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               state:
+                description: |-
+                  State represents the current high-level state of the NiFi Registry resource.
+                  For example: Creating, Running, Failed, Upgrading.
                 type: string
             type: object
         type: object
