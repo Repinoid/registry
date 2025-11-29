@@ -33,7 +33,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 					SecurityContext: &corev1.PodSecurityContext{
 						FSGroup: func() *int64 { i := int64(1000); return &i }(),
 					},
-					InitContainers: createInitContainers(nifiRegistry, imageName),
+					InitContainers: createInitContainers(imageName),
 					Containers:     []corev1.Container{createMainContainer(nifiRegistry, imageName)},
 					Volumes:        createVolumes(nifiRegistry),
 				},
@@ -45,7 +45,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 }
 
 // createInitContainers создает init-контейнеры
-func createInitContainers(nifiRegistry *registryv1.NifiRegistry, imageName string) []corev1.Container {
+func createInitContainers(imageName string) []corev1.Container {
 	const nifiConfigPath = "/opt/nifi-registry/nifi-registry-current/conf"
 
 	return []corev1.Container{
@@ -81,9 +81,15 @@ func createInitContainers(nifiRegistry *registryv1.NifiRegistry, imageName strin
 // createMainContainer создает основной контейнер
 func createMainContainer(nifiRegistry *registryv1.NifiRegistry, imageName string) corev1.Container {
 	return corev1.Container{
-		Image:   imageName,
-		Name:    "nifi-registry",
-		Command: []string{"/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh", "run"},
+		Image: imageName,
+		Name:  "nifi-registry",
+
+		Command: []string{
+			"/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh",
+			"run",
+			"--foreground",
+		},
+
 		Ports: []corev1.ContainerPort{
 			{ContainerPort: 8080, Name: "http"},
 			{ContainerPort: nifiRegistry.Spec.Tls.Port, Name: "https"},
@@ -95,8 +101,9 @@ func createMainContainer(nifiRegistry *registryv1.NifiRegistry, imageName string
 					Port: intstr.FromInt(8080),
 				},
 			},
-			InitialDelaySeconds: 30,
+			InitialDelaySeconds: 60,
 			PeriodSeconds:       10,
+			FailureThreshold:    5,
 		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
@@ -105,8 +112,9 @@ func createMainContainer(nifiRegistry *registryv1.NifiRegistry, imageName string
 					Port: intstr.FromInt(8080),
 				},
 			},
-			InitialDelaySeconds: 5,
+			InitialDelaySeconds: 30,
 			PeriodSeconds:       5,
+			FailureThreshold:    3,
 		},
 		VolumeMounts: createVolumeMounts(),
 	}

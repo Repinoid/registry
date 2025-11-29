@@ -46,7 +46,7 @@ nifi.registry.db.url=%s
 nifi.registry.db.driver.class=%s
 nifi.registry.db.username=%s
 nifi.registry.db.password=%s`,
-			nifiRegistry.Spec.Database.Url, nifiRegistry.Spec.Database.DriverClass, 
+			nifiRegistry.Spec.Database.Url, nifiRegistry.Spec.Database.DriverClass,
 			nifiRegistry.Spec.Database.Username, dbPassword)
 	} else {
 		effectiveFlowProvider = "org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider"
@@ -106,7 +106,7 @@ nifi.registry.extension.bundles.directory=./extension_bundles`,
 func generateIdentityProvidersXML(nifiRegistry *registryv1.NifiRegistry, clientSecret string) string {
 	keycloakSpec := nifiRegistry.Spec.Keycloak
 	baseURL, _ := getOidcBaseURL(keycloakSpec.DiscoveryUrl)
-	
+
 	claimForIdentity := keycloakSpec.ClaimIdentifyingUser
 	if claimForIdentity == "" {
 		claimForIdentity = "preferred_username"

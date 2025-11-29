@@ -5,20 +5,18 @@ kind: NifiRegistry
 metadata:
   name: nifiregistry-sample
 spec:
-  # Настройки развертывания
   size: 1
   image:
     repository: apache/nifi-registry
     tag: 1.24.0
 
-  # --- ОБЯЗАТЕЛЬНЫЕ ПОЛЯ TLS ---
   tls:
     enabled: false
-    port: 8080
-    host: nifiregistry-sample-svc.default.svc.cluster.local # Required value (Имя Service)
-    keystorePassword: changeit # Required value (Пароль по умолчанию для Keystore)
-    truststorePassword: changeit # Required value (Пароль по умолчанию для Truststore)
-    adminIdentity: "admin-registry@keycloak.local"
+    port: 8443  # ← ИЗМЕНИ НА 8443
+    host: nifiregistry-sample-svc.default.svc.cluster.local
+    keystorePassword: changeit
+    truststorePassword: changeit
+    adminIdentity: "root"
 
   # Настройки Keycloak OIDC
   keycloak:
@@ -30,7 +28,7 @@ spec:
   # Настройки Flow Storage (хранение версий потоков)
   flowStorage:
     enabled: false # Отключаем Flow Storage, чтобы избежать проблем с PVC на этом шаге отладки
-    size: 5Gi
+    size: 1Gi
     storageClass: standard
 
   # ------------------------------------------------------------------
