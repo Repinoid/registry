@@ -20,7 +20,7 @@ type TlsSpec struct {
 
 	Host string `json:"host,omitempty"`
 
-	KeystorePassword string `json:"keystorePassword,omitempty"`
+	KeystorePassword   string `json:"keystorePassword,omitempty"`
 	TruststorePassword string `json:"truststorePassword,omitempty"`
 
 	AdminIdentity string `json:"adminIdentity,omitempty"`
@@ -28,10 +28,10 @@ type TlsSpec struct {
 
 // KeycloakSpec определяет настройки Keycloak OIDC
 type KeycloakSpec struct {
-	DiscoveryUrl string `json:"discoveryUrl,omitempty"`
-	ClientId string `json:"clientId,omitempty"`
+	DiscoveryUrl         string `json:"discoveryUrl,omitempty"`
+	ClientId             string `json:"clientId,omitempty"`
 	ClaimIdentifyingUser string `json:"claimIdentifyingUser,omitempty"`
-	ClientSecretName string `json:"clientSecretName,omitempty"`
+	ClientSecretName     string `json:"clientSecretName,omitempty"`
 }
 
 // DatabaseSpec определяет настройки внешней БД (для подключения NiFi Registry)
@@ -39,10 +39,10 @@ type DatabaseSpec struct {
 	// +kubebuilder:default=false
 	Enabled bool `json:"enabled"`
 
-	Url string `json:"url,omitempty"`
+	Url         string `json:"url,omitempty"`
 	DriverClass string `json:"driverClass,omitempty"`
-	Username string `json:"username,omitempty"`
-	SecretName string `json:"secretName,omitempty"`
+	Username    string `json:"username,omitempty"`
+	SecretName  string `json:"secretName,omitempty"`
 }
 
 // FlowStorageSpec определяет спецификацию Persistent Volume Claim (PVC)
@@ -59,7 +59,7 @@ type FlowStorageSpec struct {
 // ImageSpec определяет репозиторий и тег образа NiFi Registry
 type ImageSpec struct {
 	Repository string `json:"repository,omitempty"`
-	Tag string `json:"tag,omitempty"`
+	Tag        string `json:"tag,omitempty"`
 }
 
 // PostgreSQLDeploySpec определяет настройки для развертывания внутреннего PostgreSQL
@@ -75,7 +75,6 @@ type PostgreSQLDeploySpec struct {
 	StorageClass string `json:"storageClass,omitempty"`
 }
 
-
 // --- Основная структура ---
 
 // NifiRegistrySpec определяет желаемое состояние NifiRegistry
@@ -84,7 +83,7 @@ type NifiRegistrySpec struct {
 	// +kubebuilder:default=1
 	Size int32 `json:"size,omitempty"`
 
-	// Image, Repository, Tag 
+	// Image, Repository, Tag
 	Image ImageSpec `json:"image,omitempty"`
 
 	// Resources определяет ограничения ресурсов (CPU/Memory) для контейнера NiFi Registry.
@@ -113,10 +112,10 @@ type NifiRegistryStatus struct {
 
 // NifiRegistry — это Custom Resource для деплоя NiFi Registry.
 type NifiRegistry struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec NifiRegistrySpec `json:"spec,omitempty"`
+	Spec   NifiRegistrySpec   `json:"spec,omitempty"`
 	Status NifiRegistryStatus `json:"status,omitempty"`
 }
 
@@ -126,7 +125,7 @@ type NifiRegistry struct {
 type NifiRegistryList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items []NifiRegistry `json:"items"`
+	Items           []NifiRegistry `json:"items"`
 }
 
 func init() {

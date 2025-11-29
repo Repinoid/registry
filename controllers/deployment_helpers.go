@@ -66,12 +66,12 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 			},
 		})
 	}
-	
+
 	// 4. Environment Variables (Настройка сети и внешней БД)
 	envVars := []corev1.EnvVar{
 		{
 			Name:  "NIFI_REGISTRY_WEB_HTTP_HOST",
-			Value: "0.0.0.0", 
+			Value: "0.0.0.0",
 		},
 	}
 
@@ -93,7 +93,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 			Name:  "NIFI_REGISTRY_DB_USERNAME",
 			Value: nifiRegistry.Spec.Database.Username,
 		})
-		
+
 		// Пароль берем из Secret, если указан SecretName
 		if nifiRegistry.Spec.Database.SecretName != "" {
 			envVars = append(envVars, corev1.EnvVar{
@@ -109,7 +109,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 			})
 		}
 	}
-	
+
 	// Основной контейнер NiFi Registry
 	nifiRegistryContainer := corev1.Container{
 		Name:  "nifi-registry",

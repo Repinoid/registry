@@ -30,7 +30,7 @@ rules:
   - secrets
   verbs:
   - create
-  - delete // <-- ВОЗВРАЩЕНО
+  - delete
   - get
   - list
   - patch

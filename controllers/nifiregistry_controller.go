@@ -32,7 +32,7 @@ type NifiRegistryReconciler struct {
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete 
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -51,7 +51,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 2. Create or Update Database Secret (Только если БД включена) 
+	// 2. Create or Update Database Secret (Только если БД включена)
 	if nifiRegistry.Spec.Database.Enabled {
 		secret := secretForNifiRegistry(nifiRegistry, r.Scheme)
 		if secret != nil {
@@ -72,7 +72,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// 3. Handle PostgreSQL Resources (if enabled)
 	if nifiRegistry.Spec.PostgreSQL.Enabled {
-		
+
 		// 3.1. Create or Update PostgreSQL PVC
 		pvc := pvcForPostgreSQL(nifiRegistry)
 		if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
@@ -92,7 +92,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			log.Error(err, "Failed to get PostgreSQL PVC")
 			return ctrl.Result{}, err
 		}
-		
+
 		// 3.2. Create or Update PostgreSQL Service
 		svc := serviceForPostgreSQL(nifiRegistry)
 		if err := controllerutil.SetControllerReference(nifiRegistry, svc, r.Scheme); err != nil {
@@ -112,7 +112,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			log.Error(err, "Failed to get PostgreSQL Service")
 			return ctrl.Result{}, err
 		}
-		
+
 		// 3.3. Create or Update PostgreSQL Deployment
 		dep := deploymentForPostgreSQL(nifiRegistry)
 		if err := controllerutil.SetControllerReference(nifiRegistry, dep, r.Scheme); err != nil {
@@ -133,7 +133,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, err
 		}
 	}
-	
+
 	// 4. Create or Update Service (для NiFi Registry)
 	svc := serviceForNifiRegistry(nifiRegistry, r.Scheme)
 	if err := controllerutil.SetControllerReference(nifiRegistry, svc, r.Scheme); err != nil {

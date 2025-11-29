@@ -4,7 +4,7 @@ package controllers
 
 import (
 	"fmt"
-	
+
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -59,7 +59,7 @@ func pvcForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentV
 // serviceForPostgreSQL генерирует Service для PostgreSQL
 func serviceForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.Service {
 	// Имя сервиса должно совпадать с тем, что мы хардкодили в NIFI_REGISTRY_DB_URL
-	name := PostgresServiceName 
+	name := PostgresServiceName
 	labels := map[string]string{"app": nifiRegistry.Name, "db": "postgresql"}
 
 	svc := &corev1.Service{
@@ -69,13 +69,13 @@ func serviceForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.Service
 			Labels:    labels,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: labels, 
+			Selector: labels,
 			Ports: []corev1.ServicePort{
 				{
-					Protocol: corev1.ProtocolTCP,
-					Port:     PostgresPort,
+					Protocol:   corev1.ProtocolTCP,
+					Port:       PostgresPort,
 					TargetPort: intstr.FromInt(PostgresPort),
-					Name:     "postgres",
+					Name:       "postgres",
 				},
 			},
 			Type: corev1.ServiceTypeClusterIP,
@@ -90,23 +90,23 @@ func serviceForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.Service
 func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Deployment {
 	labels := map[string]string{"app": nifiRegistry.Name, "db": "postgresql"}
 	replicas := int32(1)
-	
+
 	dbSpec := nifiRegistry.Spec.Database
 	postgresImage := nifiRegistry.Spec.PostgreSQL.Image
-	
+
 	// Определяем переменные окружения для PostgreSQL
 	envVars := []corev1.EnvVar{
 		{
-			Name: "POSTGRES_USER",
+			Name:  "POSTGRES_USER",
 			Value: dbSpec.Username,
 		},
 		{
 			Name: "POSTGRES_DB",
 			// Название БД берем "nifiregistry", что соответствует URL подключения NiFi Registry
-			Value: "nifiregistry", 
+			Value: "nifiregistry",
 		},
 	}
-	
+
 	// Пароль берем из Secret
 	if dbSpec.SecretName != "" {
 		envVars = append(envVars, corev1.EnvVar{
@@ -121,7 +121,7 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 			},
 		})
 	}
-	
+
 	// Контейнер PostgreSQL
 	postgresContainer := corev1.Container{
 		Name:  "postgresql",
