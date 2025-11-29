@@ -6,7 +6,7 @@ import (
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 )
 
-// (Версия 8.0: Возврат всех 4 полей H2)
+// (Версия 9.0: Фиктивный пароль H2)
 // generateNifiRegistryProperties генерирует содержимое nifi-registry.properties
 func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPassword string) string {
 	var effectiveFlowProvider string
@@ -26,7 +26,7 @@ nifi.registry.db.password=%s`,
 			nifiRegistry.Spec.Database.Username, dbPassword)
 	} else {
 		// КОНФИГУРАЦИЯ ДЛЯ H2 (Встроенная БД)
-		// ВОЗВРАЩАЕМ ВСЕ ЧЕТЫРЕ ОБЯЗАТЕЛЬНЫХ ПОЛЯ ДЛЯ SQL Flow Persistence Provider
+		// Предоставляем фиктивный, но НЕПУСТОЙ пароль, чтобы удовлетворить требование синтаксического анализа Spring/DB.
 		effectiveFlowProvider = "org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider"
 		dbConfigSection = `
 # Database Configuration (H2 - Embedded)
@@ -34,7 +34,7 @@ nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersisten
 nifi.registry.db.url=jdbc:h2:./database/nifi-registry-db
 nifi.registry.db.driver.class=org.h2.Driver
 nifi.registry.db.username=sa
-nifi.registry.db.password=` // Пароль пустой строкой
+nifi.registry.db.password=h2password` // <-- ФИКСИВНЫЙ ПАРОЛЬ
 	}
 
 	return fmt.Sprintf(`
@@ -57,7 +57,7 @@ nifi.registry.web.api.context.path=/nifi-registry-api
 nifi.registry.web.jetty.threads=200
 
 # Security Settings
-# ВРЕМЕННО ОТКЛЮЧЕНО для диагностики.
+# ВРЕМЕННО ОТКЛЮЧЕНО
 # nifi.registry.security.user.login.identity.provider=keycloak 
 nifi.registry.security.user.login.identity.provider=
 
