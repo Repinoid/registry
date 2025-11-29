@@ -10,83 +10,105 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// deploymentForNifiRegistry генерирует Deployment для NiFi Registry
+// deploymentForNifiRegistry генерирует Deployment для NiFi Registry.
 func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *appsv1.Deployment {
 	labels := map[string]string{"app": nifiRegistry.Name}
+	name := nifiRegistry.Name
 
-	replicas := nifiRegistry.Spec.Size
-
-	fullImage := fmt.Sprintf("%s:%s", nifiRegistry.Spec.Image.Repository, nifiRegistry.Spec.Image.Tag)
-
-	// Инициализация списков для Volumes, VolumeMounts и InitContainers
-	volumes := []corev1.Volume{}
-	volumeMounts := []corev1.VolumeMount{}
-	initContainers := []corev1.Container{} // <-- Инициализация списка Init-контейнеров
-
-	// Общие переменные для томов NiFi Registry
-	flowStorageVolumeName := "flow-storage-volume"
-	flowStorageMountPath := "/opt/nifi-registry/nifi-registry-current/flow_storage"
-
-	// Если Flow Storage включен, добавляем PVC volume, mount и Init-контейнер <-- ВОЗВРАЩЕНО
-	if nifiRegistry.Spec.FlowStorage.Enabled {
-		pvcName := fmt.Sprintf("%s-flow", nifiRegistry.Name)
-
-		// 1. Volumes
-		volumes = append(volumes, corev1.Volume{
-			Name: flowStorageVolumeName,
+	// 1. Volumes
+	volumes := []corev1.Volume{
+		{
+			Name: "config",
 			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: pvcName,
-					ReadOnly:  false,
-				},
-			},
-		})
-
-		// 2. Volume Mounts для основного контейнера
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      flowStorageVolumeName,
-			MountPath: flowStorageMountPath,
-		})
-
-		// 3. Init Container для chown (изменение прав доступа) <-- ДОБАВЛЕНО
-		initContainers = append(initContainers, corev1.Container{
-			Name:    "init-data-chown",
-			Image:   "busybox", // Используем легковесный образ
-			Command: []string{"sh", "-c", "chown -R 1000:1000 " + flowStorageMountPath},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      flowStorageVolumeName,
-					MountPath: flowStorageMountPath,
-				},
-			},
-		})
-	}
-
-	// Основной контейнер NiFi Registry
-	nifiRegistryContainer := corev1.Container{
-		Name:  "nifi-registry",
-		Image: fullImage,
-		Ports: []corev1.ContainerPort{
-			{
-				ContainerPort: 18080,
-				Name:          "http-port",
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		},
-		VolumeMounts: volumeMounts,
-		Resources:    nifiRegistry.Spec.Resources,
+		{
+			Name: "conf",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		{
+			Name: "state",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		// Добавляем PVC для FlowStorage
+		{
+			Name: "flow-storage-volume",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: fmt.Sprintf("%s-flow", nifiRegistry.Name),
+				},
+			},
+		},
 	}
 
-	dep := &appsv1.Deployment{
+	// 2. Volume Mounts
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "config",
+			MountPath: "/opt/nifi-registry/nifi-registry-current/conf",
+		},
+		{
+			Name:      "conf",
+			MountPath: "/opt/nifi-registry/nifi-registry-current/conf.bak",
+		},
+		{
+			Name:      "state",
+			MountPath: "/opt/nifi-registry/nifi-registry-current/state",
+		},
+		{
+			Name:      "flow-storage-volume",
+			MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
+		},
+	}
+
+	// 3. Init Containers
+	initContainers := []corev1.Container{
+		// Init-контейнер для chown (как в стандартном образе)
+		{
+			Name:  "init-data-chown",
+			// Используем busybox, так как в nifi-registry может не быть нужных утилит
+			Image: "busybox",
+			// Команда sh -c должна быть корректной для busybox
+			Command: []string{"sh", "-c", "chown -R 1000:1000 /opt/nifi-registry/nifi-registry-current/flow_storage"},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      "flow-storage-volume",
+					MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
+				},
+			},
+		},
+	}
+
+	// 4. Environment Variables
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "NIFI_REGISTRY_WEB_HTTP_PORT",
+			Value: "18080",
+		},
+		{ // ИСПРАВЛЕНИЕ: ПРИВЯЗКА К 0.0.0.0
+			Name:  "NIFI_REGISTRY_WEB_HTTP_HOST",
+			Value: "0.0.0.0",
+		},
+	}
+
+	// 5. Deployment Spec
+	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      nifiRegistry.Name,
+			Name:      name,
 			Namespace: nifiRegistry.Namespace,
 			Labels:    labels,
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
+			Replicas: &nifiRegistry.Spec.Size,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
@@ -95,10 +117,49 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					// Init-контейнеры ДОЛЖНЫ быть в PodSpec
-					InitContainers: initContainers, // <-- Используем восстановленный список
+					// Добавляем Init Containers
+					InitContainers: initContainers,
 					Containers: []corev1.Container{
-						nifiRegistryContainer,
+						{
+							Name:  "nifi-registry",
+							Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: 18080,
+									Name:          "http",
+									Protocol:      corev1.ProtocolTCP,
+								},
+							},
+							Resources: nifiRegistry.Spec.Resources,
+							VolumeMounts: volumeMounts,
+							Env:          envVars,
+							LivenessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path:   "/nifi-registry/",
+										Port:   intstr.FromInt(18080),
+										Scheme: corev1.URISchemeHTTP,
+									},
+								},
+								InitialDelaySeconds: 20,
+								TimeoutSeconds:      1,
+								PeriodSeconds:       5,
+								FailureThreshold:    6,
+							},
+							ReadinessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path:   "/nifi-registry/",
+										Port:   intstr.FromInt(18080),
+										Scheme: corev1.URISchemeHTTP,
+									},
+								},
+								InitialDelaySeconds: 5,
+								TimeoutSeconds:      1,
+								PeriodSeconds:       10,
+								FailureThreshold:    3,
+							},
+						},
 					},
 					Volumes: volumes,
 				},
@@ -106,6 +167,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 		},
 	}
 
-	ctrl.SetControllerReference(nifiRegistry, dep, scheme)
-	return dep
+	// Устанавливаем владельца
+	ctrl.SetControllerReference(nifiRegistry, deployment, scheme)
+	return deployment
 }
