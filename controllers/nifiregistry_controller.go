@@ -30,9 +30,9 @@ type NifiRegistryReconciler struct {
 //+kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries/finalizers,verbs=update
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete // <-- ВОЗВРАЩЕНО
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -51,10 +51,31 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 2. УДАЛЕНО: Create or Update ConfigMap
+	// 2. Create or Update Database Secret (Только если БД включена) <-- ВОЗВРАЩЕНО
+	if nifiRegistry.Spec.Database.Enabled {
+		secret := secretForNifiRegistry(nifiRegistry, r.Scheme)
+		// SecretForNifiRegistry возвращает nil, если SecretName пуст.
+		if secret != nil {
+			// ControllerReference установлен в helper, если SecretName существует.
+			foundSecret := &corev1.Secret{}
+			err = r.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, foundSecret)
+			if err != nil && errors.IsNotFound(err) {
+				log.Info("Creating a new Database Secret", "Secret.Namespace", secret.Namespace, "Secret.Name", secret.Name)
+				// Если Secret не найден, мы его создаем (но только если БД включена)
+				err = r.Create(ctx, secret)
+				if err != nil {
+					log.Error(err, "Failed to create new Database Secret")
+					return ctrl.Result{}, err
+				}
+			} else if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
 
 	// 3. Create or Update Service
 	svc := serviceForNifiRegistry(nifiRegistry, r.Scheme)
+	// ... (логика создания/обновления Service)
 	if err := controllerutil.SetControllerReference(nifiRegistry, svc, r.Scheme); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -71,10 +92,30 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 4. УДАЛЕНО: Create or Update PVC
+	// 4. Create or Update PVC (только если FlowStorage задан)
+	if nifiRegistry.Spec.FlowStorage.Enabled {
+		pvc := pvcForNifiRegistry(nifiRegistry, r.Scheme)
+		// ... (логика создания/обновления PVC)
+		if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
+			return ctrl.Result{}, err
+		}
+		foundPVC := &corev1.PersistentVolumeClaim{}
+		err = r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, foundPVC)
+		if err != nil && errors.IsNotFound(err) {
+			log.Info("Creating a new PVC", "PVC.Namespace", pvc.Namespace, "PVC.Name", pvc.Name)
+			err = r.Create(ctx, pvc)
+			if err != nil {
+				log.Error(err, "Failed to create new PVC")
+				return ctrl.Result{}, err
+			}
+		} else if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 
 	// 5. Create or Update Deployment
 	dep := deploymentForNifiRegistry(nifiRegistry, r.Scheme)
+	// ... (логика создания/обновления Deployment)
 	if err := controllerutil.SetControllerReference(nifiRegistry, dep, r.Scheme); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -100,5 +141,7 @@ func (r *NifiRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&registryv1.NifiRegistry{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
+		Owns(&corev1.Secret{}). // <-- ВОЗВРАЩЕНО
 		Complete(r)
 }

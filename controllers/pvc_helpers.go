@@ -12,12 +12,15 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// pvcForNifiRegistry генерирует PVC для NiFi Registry Flow Storage
+// pvcForNifiRegistry генерирует PersistentVolumeClaim для Flow Storage
 func pvcForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.PersistentVolumeClaim {
 	labels := map[string]string{"app": nifiRegistry.Name}
 	pvcName := fmt.Sprintf("%s-flow", nifiRegistry.Name)
-	// Используем 'standard', как было ранее
-	storageClassName := "standard"
+
+	flowStorage := nifiRegistry.Spec.FlowStorage
+
+	// Используем размер напрямую
+	storageSize := flowStorage.Size
 
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -26,14 +29,14 @@ func pvcForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.S
 			Labels:    labels,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			StorageClassName: &storageClassName,
-			// ИСПРАВЛЕНО: используем corev1.ResourceRequirements
-			Resources: corev1.ResourceRequirements{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.ResourceRequirements{ // <-- Проблема здесь
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: nifiRegistry.Spec.FlowStorage.Size,
+					corev1.ResourceStorage: storageSize,
 				},
 			},
+			// Предполагаем, что StorageClass всегда установлен в манифесте
+			StorageClassName: &flowStorage.StorageClass,
 		},
 	}
 

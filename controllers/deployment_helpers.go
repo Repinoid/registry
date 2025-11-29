@@ -17,11 +17,53 @@ import (
 func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *appsv1.Deployment {
 	labels := map[string]string{"app": nifiRegistry.Name}
 
-	// Используем поле Size из CRD
 	replicas := nifiRegistry.Spec.Size
 
-	// Формируем полный образ из структуры Spec.Image
 	fullImage := fmt.Sprintf("%s:%s", nifiRegistry.Spec.Image.Repository, nifiRegistry.Spec.Image.Tag)
+
+	// Инициализация списков для Volumes, VolumeMounts и InitContainers
+	volumes := []corev1.Volume{}
+	volumeMounts := []corev1.VolumeMount{}
+	initContainers := []corev1.Container{} // <-- Инициализация списка Init-контейнеров
+
+	// Общие переменные для томов NiFi Registry
+	flowStorageVolumeName := "flow-storage-volume"
+	flowStorageMountPath := "/opt/nifi-registry/nifi-registry-current/flow_storage"
+
+	// Если Flow Storage включен, добавляем PVC volume, mount и Init-контейнер <-- ВОЗВРАЩЕНО
+	if nifiRegistry.Spec.FlowStorage.Enabled {
+		pvcName := fmt.Sprintf("%s-flow", nifiRegistry.Name)
+
+		// 1. Volumes
+		volumes = append(volumes, corev1.Volume{
+			Name: flowStorageVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: pvcName,
+					ReadOnly:  false,
+				},
+			},
+		})
+
+		// 2. Volume Mounts для основного контейнера
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      flowStorageVolumeName,
+			MountPath: flowStorageMountPath,
+		})
+
+		// 3. Init Container для chown (изменение прав доступа) <-- ДОБАВЛЕНО
+		initContainers = append(initContainers, corev1.Container{
+			Name:    "init-data-chown",
+			Image:   "busybox", // Используем легковесный образ
+			Command: []string{"sh", "-c", "chown -R 1000:1000 " + flowStorageMountPath},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      flowStorageVolumeName,
+					MountPath: flowStorageMountPath,
+				},
+			},
+		})
+	}
 
 	// Основной контейнер NiFi Registry
 	nifiRegistryContainer := corev1.Container{
@@ -29,13 +71,11 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 		Image: fullImage,
 		Ports: []corev1.ContainerPort{
 			{
-				// Порт берется из Service (18080 или 8443)
 				ContainerPort: 18080,
 				Name:          "http-port",
 			},
 		},
-		VolumeMounts: nil, // УДАЛЕНО: Больше нет монтирования томов
-		Env:          nil, // УДАЛЕНО: Больше нет переменных окружения (NIFI_REGISTRY_HOME)
+		VolumeMounts: volumeMounts,
 		Resources:    nifiRegistry.Spec.Resources,
 	}
 
@@ -55,11 +95,12 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					InitContainers: nil, // УДАЛЕНО: Init-контейнеры
+					// Init-контейнеры ДОЛЖНЫ быть в PodSpec
+					InitContainers: initContainers, // <-- Используем восстановленный список
 					Containers: []corev1.Container{
 						nifiRegistryContainer,
 					},
-					Volumes: nil, // УДАЛЕНО: Тома
+					Volumes: volumes,
 				},
 			},
 		},
