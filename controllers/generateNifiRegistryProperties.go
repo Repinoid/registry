@@ -6,7 +6,7 @@ import (
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 )
 
-// (Версия 13.0: Чистый KeyValue Provider + Удаление всех DB настроек H2 и identity-providers.xml)
+// (Версия 15.0: Официальные H2-дефолты)
 // generateNifiRegistryProperties генерирует содержимое nifi-registry.properties
 func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPassword string) string {
 	var effectiveFlowProvider string
@@ -26,9 +26,15 @@ nifi.registry.db.password=%s`,
 			nifiRegistry.Spec.Database.Username, dbPassword)
 	} else {
 		// КОНФИГУРАЦИЯ ДЛЯ H2 (Встроенная БД)
-		// Устанавливаем ТОЛЬКО KeyValue Provider. Полностью исключаем nifi.registry.db.*.
+		// Используем официальные значения по умолчанию для nifi.registry.db.*
 		effectiveFlowProvider = "org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider"
-		dbConfigSection = "" 
+		dbConfigSection = `
+# Database Configuration (H2 - Embedded, official defaults)
+nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
+nifi.registry.db.url=jdbc:h2:./database/nifi-registry-primary
+nifi.registry.db.driver.class=org.h2.Driver
+nifi.registry.db.username=nifireg
+nifi.registry.db.password=nifireg` // <-- ОФИЦИАЛЬНЫЙ ДЕФОЛТ
 	}
 
 	return fmt.Sprintf(`
@@ -51,6 +57,7 @@ nifi.registry.web.api.context.path=/nifi-registry-api
 nifi.registry.web.jetty.threads=200
 
 # Security Settings
+# ВРЕМЕННО ОТКЛЮЧЕНО
 # nifi.registry.security.user.login.identity.provider=keycloak 
 nifi.registry.security.user.login.identity.provider=
 
@@ -65,8 +72,7 @@ nifi.registry.security.user.group.provider.implementation.org.apache.nifi.regist
 nifi.registry.security.user.group.provider.implementation.org.apache.nifi.registry.security.authorization.file.FileUserGroupProvider.initial.admin.identity=
 
 # Identity Providers Settings
-# nifi.registry.security.identity.providers.file=./conf/identity-providers.xml <--- КОММЕНТИРУЕМ ЭТУ СТРОКУ
-# nifi.registry.security.identity.providers.file=./conf/identity-providers.xml
+nifi.registry.security.identity.providers.file=./conf/identity-providers.xml
 
 # Notification Service Settings
 nifi.registry.notification.services.file=./conf/notification-services.xml
