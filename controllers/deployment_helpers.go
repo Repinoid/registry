@@ -20,6 +20,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 
 	// Объем для данных NiFi Registry (flow storage)
 	flowStorageVolumeName := "nifi-registry-flow-storage"
+	libStorageVolumeName := "nifi-registry-lib-storage" // <--- НОВОЕ ИМЯ ТОМА
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -48,8 +49,9 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      flowStorageVolumeName,
+									Name:      libStorageVolumeName, // <--- ИСПОЛЬЗУЕМ НОВЫЙ ТОМ
 									MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
+									// SubPath удален
 								},
 							},
 						},
@@ -106,13 +108,14 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      flowStorageVolumeName,
+									Name:      libStorageVolumeName, // <--- ИСПОЛЬЗУЕМ НОВЫЙ ТОМ
 									MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
+									// SubPath удален
 								},
 								{
 									Name:      flowStorageVolumeName,
 									MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
-									SubPath:   "flow",
+									// SubPath удален, монтируем весь PVC в папку /flow_storage
 								},
 							},
 						},
@@ -123,6 +126,14 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 							VolumeSource: corev1.VolumeSource{
 								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 									ClaimName: nifiRegistry.Name + "-flow",
+								},
+							},
+						},
+						{
+							Name: libStorageVolumeName, // <--- НОВЫЙ ТОМ
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: nifiRegistry.Name + "-lib", // <--- НОВОЕ ИМЯ PVC
 								},
 							},
 						},

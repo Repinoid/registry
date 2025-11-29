@@ -40,78 +40,79 @@ spec:
             description: NifiRegistrySpec defines the desired state of NifiRegistry
             properties:
               database:
-                description: Database defines the database connection details for
-                  NiFi Registry.
+                description: Database defines the external database connection settings
                 properties:
                   driverClass:
-                    description: DriverClass is the JDBC driver class (e.g., org.postgresql.Driver).
                     type: string
                   enabled:
-                    description: Enabled determines whether to use an external database.
                     type: boolean
                   secretName:
-                    description: SecretName will be used to hardcode the password
-                      string into the Deployment Environment Variable.
                     type: string
                   url:
-                    description: Url is the JDBC connection URL for the database (e.g.,
-                      jdbc:postgresql://host:port/dbname).
                     type: string
                   username:
-                    description: Username is the database username.
                     type: string
                 type: object
               flowStorage:
-                description: FlowStorage defines persistent storage configuration
-                  for flow definitions.
+                description: FlowStorage defines the settings for Nifi Registry flow
+                  persistence
                 properties:
                   enabled:
-                    description: Enabled determines whether to use persistent storage
-                      for flows.
                     type: boolean
-                  storageClassName:
-                    description: StorageClassName defines the StorageClass to use
-                      for the PVC.
+                  size:
                     type: string
-                  storageSize:
-                    description: StorageSize defines the size of the PersistentVolumeClaim
-                      (e.g., 1Gi).
+                  storageClass:
                     type: string
                 type: object
               image:
-                description: Image defines the container image used for NiFi Registry.
+                description: Image defines the Nifi Registry container image to use
                 properties:
                   repository:
-                    description: Repository is the image repository (e.g., apache/nifi-registry).
                     type: string
                   tag:
-                    description: Tag is the image tag (e.g., 1.25.0).
+                    type: string
+                type: object
+              keycloak:
+                description: Keycloak defines the OIDC settings for Keycloak authentication
+                properties:
+                  claimIdentifyingUser:
+                    type: string
+                  clientId:
+                    type: string
+                  clientSecretName:
+                    type: string
+                  discoveryUrl:
                     type: string
                 type: object
               postgreSQL:
-                description: PostgreSQL defines the specification for an optional
-                  embedded PostgreSQL instance.
+                description: PostgreSQL defines the settings for the managed PostgreSQL
+                  instance
                 properties:
+                  database:
+                    type: string
                   enabled:
-                    description: Enabled determines whether to deploy an embedded
-                      PostgreSQL instance.
                     type: boolean
                   image:
-                    description: Image defines the PostgreSQL container image (e.g.,
-                      postgres:15-alpine).
+                    description: ImageSpec defines the container image repository
+                      and tag
+                    properties:
+                      repository:
+                        type: string
+                      tag:
+                        type: string
+                    type: object
+                  password:
                     type: string
                   size:
-                    description: Size defines the size of the PersistentVolumeClaim
-                      for PostgreSQL data (e.g., 2Gi).
                     type: string
                   storageClass:
-                    description: StorageClass defines the StorageClass to use for
-                      the PostgreSQL PVC.
+                    type: string
+                  username:
                     type: string
                 type: object
               resources:
-                description: Resources defines the resource requests and limits for
-                  the NiFi Registry Pod.
+                description: Resources defines the compute resources for the Nifi
+                  Registry Pod
                 properties:
                   claims:
                     description: |-
@@ -166,95 +167,31 @@ spec:
                     type: object
                 type: object
               size:
-                description: Size is the size of the NiFi Registry cluster.
+                default: 1
                 format: int32
+                maximum: 3
                 minimum: 1
                 type: integer
               tls:
-                description: Tls defines the TLS/SSL configuration for NiFi Registry.
+                description: Tls defines the TLS settings for the Nifi Registry
                 properties:
+                  adminIdentity:
+                    type: string
                   enabled:
-                    description: Enabled determines whether to enable TLS/SSL for
-                      the NiFi Registry service.
                     type: boolean
+                  host:
+                    type: string
+                  keystorePassword:
+                    type: string
+                  port:
+                    format: int32
+                    type: integer
+                  truststorePassword:
+                    type: string
                 type: object
-            required:
-            - size
             type: object
           status:
             description: NifiRegistryStatus defines the observed state of NifiRegistry
-            properties:
-              conditions:
-                description: Conditions represent the latest available observations
-                  of an object's state
-                items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
-                  properties:
-                    lastTransitionTime:
-                      description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-                      format: date-time
-                      type: string
-                    message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This may be an empty string.
-                      maxLength: 32768
-                      type: string
-                    observedGeneration:
-                      description: |-
-                        observedGeneration represents the .metadata.generation that the condition was set based upon.
-                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-                        with respect to the current state of the instance.
-                      format: int64
-                      minimum: 0
-                      type: integer
-                    reason:
-                      description: |-
-                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
-                        Producers of specific condition types may define expected values and meanings for this field,
-                        and whether the values are considered a guaranteed API.
-                        The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
-                      type: string
-                  required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
-                  type: object
-                type: array
             type: object
         type: object
     served: true

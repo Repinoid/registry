@@ -133,21 +133,42 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 4. Create or Update PVC (только если FlowStorage задан)
+	// 4. Create or Update PVCs (для NiFi Registry)
 	if nifiRegistry.Spec.FlowStorage.Enabled {
-		pvc := pvcForNifiRegistry(nifiRegistry, r.Scheme)
-		if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
+		// 4.1. PVC for Flow Storage (использует имя -flow)
+		pvcFlow := pvcForNifiRegistry(nifiRegistry, r.Scheme) // <--- ИСПРАВЛЕНО
+		if err := controllerutil.SetControllerReference(nifiRegistry, pvcFlow, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}
-		foundPVC := &corev1.PersistentVolumeClaim{}
-		err = r.Client.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, foundPVC)
+		foundPVCFlow := &corev1.PersistentVolumeClaim{}
+		err = r.Client.Get(ctx, types.NamespacedName{Name: pvcFlow.Name, Namespace: pvcFlow.Namespace}, foundPVCFlow)
 		if err != nil && errors.IsNotFound(err) {
-			log.Info("Creating a new PVC", "PVC.Namespace", pvc.Namespace, "PVC.Name", pvc.Name)
-			err = r.Client.Create(ctx, pvc)
+			log.Info("Creating a new Flow PVC", "PVC.Namespace", pvcFlow.Namespace, "PVC.Name", pvcFlow.Name)
+			err = r.Client.Create(ctx, pvcFlow)
 			if err != nil {
-				log.Error(err, "Failed to create new PVC")
+				log.Error(err, "Failed to create new Flow PVC")
 				return ctrl.Result{}, err
 			}
+			return ctrl.Result{Requeue: true}, nil
+		} else if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// 4.2. PVC for Lib Directory (использует имя -lib)
+		pvcLib := pvcForNifiRegistryLib(nifiRegistry)
+		if err := controllerutil.SetControllerReference(nifiRegistry, pvcLib, r.Scheme); err != nil {
+			return ctrl.Result{}, err
+		}
+		foundPVCLib := &corev1.PersistentVolumeClaim{}
+		err = r.Client.Get(ctx, types.NamespacedName{Name: pvcLib.Name, Namespace: pvcLib.Namespace}, foundPVCLib)
+		if err != nil && errors.IsNotFound(err) {
+			log.Info("Creating a new Lib PVC", "PVC.Namespace", pvcLib.Namespace, "PVC.Name", pvcLib.Name)
+			err = r.Client.Create(ctx, pvcLib)
+			if err != nil {
+				log.Error(err, "Failed to create new Lib PVC")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{Requeue: true}, nil
 		} else if err != nil {
 			return ctrl.Result{}, err
 		}
