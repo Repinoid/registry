@@ -13,36 +13,29 @@ import (
 )
 
 // configMapForNifiRegistry генерирует ConfigMap для NiFi Registry
-// ИСПРАВЛЕНИЕ: Убираем лишние аргументы (string, string, string)
 func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
 	configMapName := fmt.Sprintf("%s-config", nifiRegistry.Name)
 
 	configMapData := map[string]string{
-		"log4j2.xml": `
-#
-# Licensed to the Apache Software Foundation (ASF) under one or more
-# contributor license agreements.  See the NOTICE file distributed with
-# this work for additional information regarding copyright ownership.
-# The ASF licenses this file to You under the Apache License, Version 2.0
-# (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+		// ИСПРАВЛЕНО: Корректный минимальный XML-шаблон для log4j2
+		"log4j2.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN" name="NiFiRegistry" packages="org.apache.nifi.registry.util">
+    <Appenders>
+        <Console name="STDOUT" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss,SSS} %-5p [%t] %c %M (%L) - %m%n"/>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <Root level="INFO">
+            <AppenderRef ref="STDOUT"/>
+        </Root>
+    </Loggers>
+</Configuration>
 		`,
-		// Дополнительные файлы конфигурации, если нужны, можно добавить здесь
+		// Настройки Nifi Registry
 		"nifi-registry.properties": `
 # NiFi Registry Properties
-# Эти настройки будут переопределены переменными окружения в deployment_helpers.go
-
-# Web Properties
 nifi.registry.web.http.host=0.0.0.0
 nifi.registry.web.http.port=18080
 nifi.registry.web.context.path=/nifi-registry
