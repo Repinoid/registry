@@ -16,7 +16,8 @@ import (
 // deploymentForNifiRegistry генерирует Deployment для NiFi Registry
 func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *appsv1.Deployment {
 	labels := map[string]string{"app": nifiRegistry.Name}
-	replicas := int32(1)
+	// Используем поле Size из CRD
+	replicas := nifiRegistry.Spec.Size
 
 	// Имя ConfigMap
 	configMapName := fmt.Sprintf("%s-config", nifiRegistry.Name)
@@ -43,8 +44,6 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 	}
 
 	// КОНТЕЙНЕР INIT ДЛЯ ПРАВ ДОСТУПА (УСИЛЕННЫЙ)
-	// chown -R 1000:1000 /opt/nifi-registry/nifi-registry-current (даем права на всю домашнюю папку)
-	// chmod -R 700 /opt/nifi-registry/nifi-registry-current/flow_storage (даем права на PVC)
 	initDataChownContainer := corev1.Container{
 		Name:    "init-data-chown",
 		Image:   "busybox",
@@ -57,10 +56,13 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 		},
 	}
 
+	// ИСПРАВЛЕНИЕ ОШИБКИ: Формируем полный образ из структуры Spec.Image
+	fullImage := fmt.Sprintf("%s:%s", nifiRegistry.Spec.Image.Repository, nifiRegistry.Spec.Image.Tag)
+
 	// Основной контейнер NiFi Registry
 	nifiRegistryContainer := corev1.Container{
 		Name:  "nifi-registry",
-		Image: nifiRegistry.Spec.Image, // Используем образ из CR
+		Image: fullImage, // <--- ИСПРАВЛЕНО
 		Ports: []corev1.ContainerPort{
 			{
 				ContainerPort: 18080,
@@ -83,7 +85,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 				Value: "/opt/nifi-registry/nifi-registry-current",
 			},
 		},
-		Resources: nifiRegistry.Spec.Resources, // <-- ИСПОЛЬЗУЕМ НОВОЕ ПОЛЕ
+		Resources: nifiRegistry.Spec.Resources, // <-- ИСПОЛЬЗУЕМ ПОЛЕ Resources
 	}
 
 	dep := &appsv1.Deployment{

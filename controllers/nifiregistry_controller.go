@@ -99,7 +99,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// 4. Create or Update PVC (только если FlowStorage задан)
-	if nifiRegistry.Spec.FlowStorage != nil {
+	if nifiRegistry.Spec.FlowStorage.Enabled { // <--- ИСПРАВЛЕНИЕ ЗДЕСЬ
 		pvc := pvcForNifiRegistry(nifiRegistry, r.Scheme)
 		if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
 			return ctrl.Result{}, err
