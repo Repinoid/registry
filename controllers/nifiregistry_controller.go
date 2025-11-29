@@ -154,7 +154,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// 5. Create or Update Deployment (для NiFi Registry)
-	dep := deploymentForNifiRegistry(nifiRegistry, r.Scheme)
+	dep := deploymentForNifiRegistry(nifiRegistry)
 	if err := controllerutil.SetControllerReference(nifiRegistry, dep, r.Scheme); err != nil {
 		return ctrl.Result{}, err
 	}
