@@ -32,7 +32,6 @@ func getOidcBaseURL(discoveryURL string) (string, error) {
 	return u.Scheme + "://" + u.Host + u.Path, nil
 }
 
-
 // generateIdentityProvidersXML генерирует identity-providers.xml
 func generateIdentityProvidersXML(nifiRegistry *registryv1.NifiRegistry, clientSecret string) string {
 	keycloakSpec := nifiRegistry.Spec.Keycloak
@@ -93,18 +92,18 @@ func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, name string
 
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: 		 name,
+			Name:      name,
 			Namespace: nifiRegistry.Namespace,
-			Labels: 	 labels,
+			Labels:    labels,
 		},
 		Data: map[string]string{
 			// КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: УДАЛЕНА настройка nifi-registry.properties.
 			// Теперь Pod будет использовать дефолтный файл из образа, который работает с H2.
-			// "nifi-registry.properties": generateNifiRegistryProperties(nifiRegistry, dbPassword), 
-			
-			"identity-providers.xml": 	generateIdentityProvidersXML(nifiRegistry, clientSecret),
-			"authorizers.xml": 				generateAuthorizersXML(nifiRegistry),
-			"logback.xml": 						generateLogbackXML(),
+			// "nifi-registry.properties": generateNifiRegistryProperties(nifiRegistry, dbPassword),
+
+			"identity-providers.xml": generateIdentityProvidersXML(nifiRegistry, clientSecret),
+			"authorizers.xml":        generateAuthorizersXML(nifiRegistry),
+			"logback.xml":            generateLogbackXML(),
 		},
 	}
 

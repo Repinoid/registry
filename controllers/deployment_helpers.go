@@ -33,7 +33,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 					SecurityContext: &corev1.PodSecurityContext{
 						FSGroup: func() *int64 { i := int64(1000); return &i }(),
 					},
-					InitContainers: createInitContainers(imageName),
+					InitContainers: createInitContainers(nifiRegistry, imageName),
 					Containers:     []corev1.Container{createMainContainer(nifiRegistry, imageName)},
 					Volumes:        createVolumes(nifiRegistry),
 				},
@@ -45,18 +45,21 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 }
 
 // createInitContainers создает init-контейнеры
-func createInitContainers(imageName string) []corev1.Container {
+func createInitContainers(nifiRegistry *registryv1.NifiRegistry, imageName string) []corev1.Container {
 	const nifiConfigPath = "/opt/nifi-registry/nifi-registry-current/conf"
 
-	return []corev1.Container{
+	initContainers := []corev1.Container{
 		{
 			Name:  "init-config-copy",
 			Image: imageName,
+
 			Command: []string{
 				"sh", "-c",
-				fmt.Sprintf("cp -LR %s/. /conf-writable/ && cp /config-source/*.properties /conf-writable/ && cp /config-source/*.xml /conf-writable/",
+				// Исправлено: копируем .properties (включая nifi-registry.properties) и .xml (Keycloak конфиг)
+				fmt.Sprintf("cp -LR %s/. /conf-writable/ && cp /config-source/*.properties /conf-writable/ || true && cp /config-source/*.xml /conf-writable/",
 					nifiConfigPath),
 			},
+
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "config-source", MountPath: "/config-source"},
 				{Name: "conf-writable", MountPath: "/conf-writable"},
@@ -67,22 +70,57 @@ func createInitContainers(imageName string) []corev1.Container {
 			Image: "busybox:1.36",
 			Command: []string{
 				"sh", "-c",
-				"chown -R 1000:1000 /data-flow && chown -R 1000:1000 /data-db && chown -R 1000:1000 /data-ext",
+				// Убрана привязка к "database-volume", так как она теперь не нужна для внешней БД
+				"chown -R 1000:1000 /data-flow && chown -R 1000:1000 /data-ext",
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "flow-storage-volume", MountPath: "/data-flow"},
-				{Name: "database-volume", MountPath: "/data-db"},
+				// {Name: "database-volume", MountPath: "/data-db"}, // УДАЛЕНО: Том для внешней БД
 				{Name: "extension-bundles-volume", MountPath: "/data-ext"},
 			},
 		},
 	}
+	// УДАЛЕНО: Init-контейнер для скачивания драйвера БД
+
+	return initContainers
+}
+
+// createEnvVars создает список переменных окружения для основного контейнера.
+func createEnvVars(nifiRegistry *registryv1.NifiRegistry) []corev1.EnvVar {
+	// Основные настройки (заменяют nifi-registry.properties)
+	envVars := []corev1.EnvVar{
+		// Web Settings (nifi.registry.web.http.host/port/context.path)
+		{Name: "NIFI_REGISTRY_WEB_HTTP_HOST", Value: "0.0.0.0"},
+		{Name: "NIFI_REGISTRY_WEB_HTTP_PORT", Value: "8080"},
+		{Name: "NIFI_REGISTRY_WEB_CONTEXT_PATH", Value: "/nifi-registry"},
+
+		// Security Settings (nifi.registry.security.user.login.identity.provider)
+		{Name: "NIFI_REGISTRY_SECURITY_USER_LOGIN_IDENTITY_PROVIDER", Value: "keycloak"},
+
+		// Flow Persistence Provider Settings (Используем настройки по умолчанию для H2)
+		// Для H2 достаточно оставить default provider (KeyValueFlowProvider), указав каталог:
+		{Name: "NIFI_REGISTRY_FLOW_PROVIDER_IMPLEMENTATION_ORG_APACHE_NIFI_REGISTRY_FLOW_KEYVALUE_KEYVALUEFLOWPROVIDER_FLOW_STORAGE_DIRECTORY", Value: "./flow_storage"},
+
+		// Registry Version
+		{Name: "NIFI_REGISTRY_VERSION", Value: "1.24.0"},
+	}
+
+	// УДАЛЕНО: Добавление переменных для внешней БД
+
+	return envVars
 }
 
 // createMainContainer создает основной контейнер
 func createMainContainer(nifiRegistry *registryv1.NifiRegistry, imageName string) corev1.Container {
+	volumeMounts := createVolumeMounts()
+
+	// УДАЛЕНО: Монтирование тома для драйвера БД
+
 	return corev1.Container{
 		Image: imageName,
 		Name:  "nifi-registry",
+
+		Env: createEnvVars(nifiRegistry),
 
 		Command: []string{
 			"/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh",
@@ -116,7 +154,7 @@ func createMainContainer(nifiRegistry *registryv1.NifiRegistry, imageName string
 			PeriodSeconds:       5,
 			FailureThreshold:    3,
 		},
-		VolumeMounts: createVolumeMounts(),
+		VolumeMounts: volumeMounts,
 	}
 }
 
@@ -126,8 +164,8 @@ func createVolumeMounts() []corev1.VolumeMount {
 		{Name: "conf-writable", MountPath: "/opt/nifi-registry/nifi-registry-current/conf"},
 		{Name: "logs-volume", MountPath: "/opt/nifi-registry/nifi-registry-current/logs"},
 		{Name: "flow-storage-volume", MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage"},
-		{Name: "database-volume", MountPath: "/opt/nifi-registry/nifi-registry-current/database"},
 		{Name: "extension-bundles-volume", MountPath: "/opt/nifi-registry/nifi-registry-current/extension_bundles"},
+		// УДАЛЕНО: database-volume для внешней БД
 	}
 }
 
@@ -146,11 +184,12 @@ func createVolumes(nifiRegistry *registryv1.NifiRegistry) []corev1.Volume {
 		},
 		{Name: "conf-writable", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "logs-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-		{Name: "database-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		// УДАЛЕНО: database-volume
 		{Name: "extension-bundles-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		// УДАЛЕНО: work-lib-writable
 	}
 
-	// Flow storage volume
+	// Flow storage volume (Без изменений)
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		volumes = append(volumes, corev1.Volume{
 			Name: "flow-storage-volume",

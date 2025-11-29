@@ -1,3 +1,6 @@
+Стандартное расположение, куда NiFi Registry ищет JAR-файлы провайдеров:
+Правильный путь для NiFi Registry: /opt/nifi-registry/nifi-registry-current/work/jetty/nifi-registry-web-api-1.24.0.war/WEB-INF/lib/
+
 
 # Лучший вариант - смотреть ВСЕ логи и искать ошибки
 kl $(kubectl get pods -l app=nifiregistry-sample -o name | head -1) --tail=50 | grep -E "(ERROR|Error|Exception|Failed|Caused by)"

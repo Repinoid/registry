@@ -17,7 +17,7 @@ func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPas
 	if nifiRegistry.Spec.Database.Enabled {
 		// Конфигурация для внешней БД (PostgreSQL)
 		effectiveFlowProvider := "org.apache.nifi.registry.flow.sql.SqlFlowProvider"
-		
+
 		dbConfigSection = fmt.Sprintf(`
 # Flow Persistence Provider Settings
 nifi.registry.flow.provider=%s
@@ -30,9 +30,9 @@ nifi.registry.db.username=%s
 nifi.registry.db.password=%s
 `,
 			effectiveFlowProvider,
-			nifiRegistry.Spec.Database.Url, 
+			nifiRegistry.Spec.Database.Url,
 			nifiRegistry.Spec.Database.DriverClass,
-			nifiRegistry.Spec.Database.Username, 
+			nifiRegistry.Spec.Database.Username,
 			dbPassword)
 	}
 
