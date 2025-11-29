@@ -32,7 +32,7 @@ type NifiRegistryReconciler struct {
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete 
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -41,7 +41,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// 1. Fetch the NifiRegistry instance
 	nifiRegistry := &registryv1.NifiRegistry{}
-	err := r.Client.Get(ctx, req.NamespacedName, nifiRegistry) // ИСПРАВЛЕНО
+	err := r.Client.Get(ctx, req.NamespacedName, nifiRegistry)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			log.Info("NifiRegistry resource not found. Ignoring since object must be deleted")
@@ -51,38 +51,19 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 2. Create or Update Database Secret (Только если БД включена)
-	if nifiRegistry.Spec.Database.Enabled {
-		secret := secretForNifiRegistry(nifiRegistry, r.Scheme)
-		if secret != nil {
-			foundSecret := &corev1.Secret{}
-			err = r.Client.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, foundSecret) // ИСПРАВЛЕНО
-			if err != nil && errors.IsNotFound(err) {
-				log.Info("Creating a new Database Secret", "Secret.Namespace", secret.Namespace, "Secret.Name", secret.Name)
-				err = r.Client.Create(ctx, secret) // ИСПРАВЛЕНО
-				if err != nil {
-					log.Error(err, "Failed to create new Database Secret")
-					return ctrl.Result{}, err
-				}
-			} else if err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-	}
-
-	// 3. Handle PostgreSQL Resources (if enabled)
+	// 2. Handle PostgreSQL Resources (if enabled)
 	if nifiRegistry.Spec.PostgreSQL.Enabled {
-
-		// 3.1. Create or Update PostgreSQL PVC
+		
+		// 2.1. Create or Update PostgreSQL PVC
 		pvc := pvcForPostgreSQL(nifiRegistry)
 		if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}
 		foundPvc := &corev1.PersistentVolumeClaim{}
-		err = r.Client.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, foundPvc) // ИСПРАВЛЕНО
+		err = r.Client.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, foundPvc)
 		if err != nil && errors.IsNotFound(err) {
 			log.Info("Creating a new PostgreSQL PVC", "PVC.Namespace", pvc.Namespace, "PVC.Name", pvc.Name)
-			err = r.Client.Create(ctx, pvc) // ИСПРАВЛЕНО
+			err = r.Client.Create(ctx, pvc)
 			if err != nil {
 				log.Error(err, "Failed to create PostgreSQL PVC")
 				return ctrl.Result{}, err
@@ -92,17 +73,17 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			log.Error(err, "Failed to get PostgreSQL PVC")
 			return ctrl.Result{}, err
 		}
-
-		// 3.2. Create or Update PostgreSQL Service
+		
+		// 2.2. Create or Update PostgreSQL Service
 		svc := serviceForPostgreSQL(nifiRegistry)
 		if err := controllerutil.SetControllerReference(nifiRegistry, svc, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}
 		foundSvc := &corev1.Service{}
-		err = r.Client.Get(ctx, types.NamespacedName{Name: svc.Name, Namespace: svc.Namespace}, foundSvc) // ИСПРАВЛЕНО
+		err = r.Client.Get(ctx, types.NamespacedName{Name: svc.Name, Namespace: svc.Namespace}, foundSvc)
 		if err != nil && errors.IsNotFound(err) {
 			log.Info("Creating a new PostgreSQL Service", "Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
-			err = r.Client.Create(ctx, svc) // ИСПРАВЛЕНО
+			err = r.Client.Create(ctx, svc)
 			if err != nil {
 				log.Error(err, "Failed to create PostgreSQL Service")
 				return ctrl.Result{}, err
@@ -112,17 +93,17 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			log.Error(err, "Failed to get PostgreSQL Service")
 			return ctrl.Result{}, err
 		}
-
-		// 3.3. Create or Update PostgreSQL Deployment
+		
+		// 2.3. Create or Update PostgreSQL Deployment
 		dep := deploymentForPostgreSQL(nifiRegistry)
 		if err := controllerutil.SetControllerReference(nifiRegistry, dep, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}
 		foundDep := &appsv1.Deployment{}
-		err = r.Client.Get(ctx, types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, foundDep) // ИСПРАВЛЕНО
+		err = r.Client.Get(ctx, types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, foundDep)
 		if err != nil && errors.IsNotFound(err) {
 			log.Info("Creating a new PostgreSQL Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-			err = r.Client.Create(ctx, dep) // ИСПРАВЛЕНО
+			err = r.Client.Create(ctx, dep)
 			if err != nil {
 				log.Error(err, "Failed to create PostgreSQL Deployment")
 				return ctrl.Result{}, err
@@ -133,17 +114,17 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, err
 		}
 	}
-
-	// 4. Create or Update Service (для NiFi Registry)
+	
+	// 3. Create or Update Service (для NiFi Registry)
 	svc := serviceForNifiRegistry(nifiRegistry, r.Scheme)
 	if err := controllerutil.SetControllerReference(nifiRegistry, svc, r.Scheme); err != nil {
 		return ctrl.Result{}, err
 	}
 	foundSvc := &corev1.Service{}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: svc.Name, Namespace: svc.Namespace}, foundSvc) // ИСПРАВЛЕНО
+	err = r.Client.Get(ctx, types.NamespacedName{Name: svc.Name, Namespace: svc.Namespace}, foundSvc)
 	if err != nil && errors.IsNotFound(err) {
 		log.Info("Creating a new Service", "Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
-		err = r.Client.Create(ctx, svc) // ИСПРАВЛЕНО
+		err = r.Client.Create(ctx, svc)
 		if err != nil {
 			log.Error(err, "Failed to create new Service")
 			return ctrl.Result{}, err
@@ -152,17 +133,17 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 5. Create or Update PVC (только если FlowStorage задан)
+	// 4. Create or Update PVC (только если FlowStorage задан)
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		pvc := pvcForNifiRegistry(nifiRegistry, r.Scheme)
 		if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
 			return ctrl.Result{}, err
 		}
 		foundPVC := &corev1.PersistentVolumeClaim{}
-		err = r.Client.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, foundPVC) // ИСПРАВЛЕНО
+		err = r.Client.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, foundPVC)
 		if err != nil && errors.IsNotFound(err) {
 			log.Info("Creating a new PVC", "PVC.Namespace", pvc.Namespace, "PVC.Name", pvc.Name)
-			err = r.Client.Create(ctx, pvc) // ИСПРАВЛЕНО
+			err = r.Client.Create(ctx, pvc)
 			if err != nil {
 				log.Error(err, "Failed to create new PVC")
 				return ctrl.Result{}, err
@@ -172,16 +153,16 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// 6. Create or Update Deployment (для NiFi Registry)
+	// 5. Create or Update Deployment (для NiFi Registry)
 	dep := deploymentForNifiRegistry(nifiRegistry, r.Scheme)
 	if err := controllerutil.SetControllerReference(nifiRegistry, dep, r.Scheme); err != nil {
 		return ctrl.Result{}, err
 	}
 	foundDep := &appsv1.Deployment{}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, foundDep) // ИСПРАВЛЕНО
+	err = r.Client.Get(ctx, types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, foundDep)
 	if err != nil && errors.IsNotFound(err) {
 		log.Info("Creating a new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-		err = r.Client.Create(ctx, dep) // ИСПРАВЛЕНО
+		err = r.Client.Create(ctx, dep)
 		if err != nil {
 			log.Error(err, "Failed to create new Deployment")
 			return ctrl.Result{}, err

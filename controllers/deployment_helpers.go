@@ -30,11 +30,11 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 	flowStorageVolumeName := "flow-storage-volume"
 	flowStorageMountPath := "/opt/nifi-registry/nifi-registry-current/flow_storage"
 
-	// 1. Volumes
+	// 1. Volumes, Volume Mounts и Init Container для Flow Storage
 
-	// Если Flow Storage включен, добавляем PVC volume и Init-контейнер
 	if nifiRegistry.Spec.FlowStorage.Enabled {
-		pvcName := fmt.Sprintf("%s-flow", nifiRegistry.Name)
+		// Имя PVC должно совпадать с тем, что мы создаем в pvcForNifiRegistry
+		pvcName := fmt.Sprintf("%s-flow-storage", nifiRegistry.Name) 
 
 		// Добавляем PVC Volume
 		volumes = append(volumes, corev1.Volume{
@@ -47,13 +47,13 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 			},
 		})
 
-		// 2. Volume Mounts для Flow Storage
+		// Volume Mounts для Flow Storage
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      flowStorageVolumeName,
 			MountPath: flowStorageMountPath,
 		})
 
-		// 3. Init Container для chown
+		// Init Container для chown
 		initContainers = append(initContainers, corev1.Container{
 			Name:    "init-data-chown",
 			Image:   "busybox",
@@ -67,11 +67,15 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 		})
 	}
 
-	// 4. Environment Variables (Настройка сети и внешней БД)
+	// 2. Environment Variables (Настройка сети и внешней БД)
 	envVars := []corev1.EnvVar{
 		{
 			Name:  "NIFI_REGISTRY_WEB_HTTP_HOST",
 			Value: "0.0.0.0",
+		},
+		{
+			Name:  "NIFI_REGISTRY_WEB_HTTP_PORT",
+			Value: "18080",
 		},
 	}
 
@@ -79,7 +83,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 	if nifiRegistry.Spec.Database.Enabled {
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  "NIFI_REGISTRY_DB_IMPLEMENTATION",
-			Value: "postgresql", // Мы предполагаем, что внешняя БД — это PostgreSQL
+			Value: "postgresql", 
 		})
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  "NIFI_REGISTRY_DB_URL",
@@ -94,26 +98,20 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 			Value: nifiRegistry.Spec.Database.Username,
 		})
 
-		// Пароль берем из Secret, если указан SecretName
+		// ПРЯМОЙ ПАРОЛЬ: Берем значение из SecretName (теперь это поле пароля)
 		if nifiRegistry.Spec.Database.SecretName != "" {
 			envVars = append(envVars, corev1.EnvVar{
 				Name: "NIFI_REGISTRY_DB_PASSWORD",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: nifiRegistry.Spec.Database.SecretName,
-						},
-						Key: "password", // Предполагаем, что ключ для пароля в Secret — "password"
-					},
-				},
+				// Пароль хардкодится прямо в переменную окружения
+				Value: nifiRegistry.Spec.Database.SecretName,
 			})
 		}
 	}
 
 	// Основной контейнер NiFi Registry
 	nifiRegistryContainer := corev1.Container{
-		Name:  "nifi-registry",
-		Image: fullImage,
+		Name:    "nifi-registry",
+		Image:   fullImage,
 		Ports: []corev1.ContainerPort{
 			{
 				ContainerPort: 18080,
