@@ -4,7 +4,7 @@ package controllers
 
 import (
 	"fmt"
-	
+
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,7 +65,7 @@ nifi.registry.extension.bundle.file.system.storage.directory=./extension_bundles
 #nifi.registry.security.user.login.identity.provider=
 `,
 	}
-	
+
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configMapName,

@@ -1,3 +1,5 @@
+// controllers/service_helpers.go
+
 package controllers
 
 import (
@@ -11,60 +13,52 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// persistentVolumeClaimForFlowStorage генерирует PVC для Flow Storage
-func persistentVolumeClaimForFlowStorage(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
-	labels := map[string]string{"app": nifiRegistry.Name}
-	flowSpec := nifiRegistry.Spec.FlowStorage
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-flow", nifiRegistry.Name),
-			Namespace: nifiRegistry.Namespace,
-			Labels:    labels,
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceStorage: flowSpec.Size},
-			},
-			StorageClassName: &flowSpec.StorageClass,
-		},
-	}
-
-	if flowSpec.StorageClass == "" {
-		pvc.Spec.StorageClassName = nil
-	}
-
-	return pvc
-}
-
 // serviceForNifiRegistry генерирует Service для NiFi Registry
 func serviceForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.Service {
-	labels := map[string]string{"app": nifiRegistry.Name, "app.kubernetes.io/name": nifiRegistry.Name}
+	labels := map[string]string{"app": nifiRegistry.Name}
+
+	// ИСПРАВЛЕНИЕ: Используем уникальное имя Service с суффиксом
+	serviceName := fmt.Sprintf("%s-service", nifiRegistry.Name)
+
+	// ИСПРАВЛЕНИЕ: Гарантируем, что порт > 0
+	httpPort := int32(8080)
+	if nifiRegistry.Spec.Port != 0 {
+		httpPort = nifiRegistry.Spec.Port
+	}
+
+	servicePorts := []corev1.ServicePort{
+		{
+			Port:       httpPort,
+			TargetPort: intstr.FromInt(int(httpPort)),
+			Protocol:   corev1.ProtocolTCP,
+			Name:       "http",
+		},
+	}
+
+	// Добавляем порт HTTPS, если TLS включен
+	if nifiRegistry.Spec.Tls.Enabled {
+		tlsPort := int32(8443)
+		if nifiRegistry.Spec.Tls.Port != 0 {
+			tlsPort = nifiRegistry.Spec.Tls.Port
+		}
+		servicePorts = append(servicePorts, corev1.ServicePort{
+			Port:       tlsPort,
+			TargetPort: intstr.FromInt(int(tlsPort)),
+			Protocol:   corev1.ProtocolTCP,
+			Name:       "https",
+		})
+	}
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      nifiRegistry.Name,
+			Name:      serviceName, // ИСПРАВЛЕНО
 			Namespace: nifiRegistry.Namespace,
 			Labels:    labels,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{"app": nifiRegistry.Name},
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "http",
-					Port:       8080,
-					TargetPort: intstr.FromInt(8080),
-					Protocol:   corev1.ProtocolTCP,
-				},
-				{
-					Name:       "https",
-					Port:       nifiRegistry.Spec.Tls.Port,
-					TargetPort: intstr.FromInt(int(nifiRegistry.Spec.Tls.Port)),
-					Protocol:   corev1.ProtocolTCP,
-				},
-			},
-			Type: corev1.ServiceTypeClusterIP,
+			Selector: labels,
+			Ports:    servicePorts,
+			Type:     corev1.ServiceTypeClusterIP,
 		},
 	}
 	ctrl.SetControllerReference(nifiRegistry, svc, scheme)
