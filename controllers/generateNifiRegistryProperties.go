@@ -6,6 +6,7 @@ import (
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 )
 
+// (Версия 7.0: Фиксация H2-URL)
 // generateNifiRegistryProperties генерирует содержимое nifi-registry.properties
 func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPassword string) string {
 	var effectiveFlowProvider string
@@ -25,10 +26,14 @@ nifi.registry.db.password=%s`,
 			nifiRegistry.Spec.Database.Username, dbPassword)
 	} else {
 		// КОНФИГУРАЦИЯ ДЛЯ H2 (Встроенная БД)
-		// Используем KeyValueFlowProvider и полностью удаляем все настройки nifi.registry.db.*,
-		// чтобы NiFi Registry использовал H2 по умолчанию без конфликтов.
+		// ВОЗВРАЩАЕМ МИНИМАЛЬНО НЕОБХОДИМЫЕ ПОЛЯ ДЛЯ АВТОРИЗАЦИОННОЙ БД (URL, Implementation, Driver),
+		// но ИСКЛЮЧАЕМ username и password.
 		effectiveFlowProvider = "org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider"
-		dbConfigSection = "" // Секция пуста
+		dbConfigSection = `
+# Database Configuration (H2 - Embedded)
+nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
+nifi.registry.db.url=jdbc:h2:./database/nifi-registry-db
+nifi.registry.db.driver.class=org.h2.Driver`
 	}
 
 	return fmt.Sprintf(`
@@ -51,8 +56,7 @@ nifi.registry.web.api.context.path=/nifi-registry-api
 nifi.registry.web.jetty.threads=200
 
 # Security Settings
-# ВРЕМЕННО ОТКЛЮЧЕНО для диагностики конфликта H2.
-# Удалите комментарий, когда Pod запустится успешно.
+# ВРЕМЕННО ОТКЛЮЧЕНО для диагностики.
 # nifi.registry.security.user.login.identity.provider=keycloak 
 nifi.registry.security.user.login.identity.provider=
 
