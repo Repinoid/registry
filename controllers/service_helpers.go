@@ -3,66 +3,56 @@
 package controllers
 
 import (
-	"fmt"
-
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/intstr"
-	ctrl "sigs.k8s.io/controller-runtime"
+
+	// !!! ВОТ ОН, НЕДОСТАЮЩИЙ ИМПОРТ !!!
+	intstr "k8s.io/apimachinery/pkg/util/intstr"
 )
 
-// serviceForNifiRegistry генерирует Service для NiFi Registry
+// serviceForNifiRegistry возвращает Service для NiFi Registry.
 func serviceForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.Service {
 	labels := map[string]string{"app": nifiRegistry.Name}
 
-	serviceName := fmt.Sprintf("%s-service", nifiRegistry.Name)
+	// Конфигурация порта зависит от TLS
+	var svcPort corev1.ServicePort
 
-	servicePorts := []corev1.ServicePort{}
-
-	// --- ОПРЕДЕЛЕНИЕ ПОРТОВ (Без nifiRegistry.Spec.Port) ---
-
-	if nifiRegistry.Spec.Tls.Enabled {
-		// Если TLS включен, используем порт из TlsSpec для HTTPS
-		tlsPort := int32(8443)
-		if nifiRegistry.Spec.Tls.Port != 0 {
-			tlsPort = nifiRegistry.Spec.Tls.Port
+	if nifiRegistry.Spec.Tls.Enabled { // ПРОВЕРЯЕМ: Tls.Enabled
+		svcPort = corev1.ServicePort{
+			Name:     "https-port",
+			Protocol: corev1.ProtocolTCP,
+			Port:     8443,
+			TargetPort: intstr.IntOrString{ // ИСПОЛЬЗУЕМ: intstr.IntOrString
+				Type:   intstr.Int, // ИСПОЛЬЗУЕМ: intstr.Int
+				IntVal: 8443,
+			},
 		}
-
-		servicePorts = append(servicePorts, corev1.ServicePort{
-			Port:       tlsPort,
-			TargetPort: intstr.FromInt(int(tlsPort)),
-			Protocol:   corev1.ProtocolTCP,
-			Name:       "https",
-		})
-
 	} else {
-		// Если TLS выключен, используем порт по умолчанию 18080 для HTTP
-		httpPort := int32(18080)
-
-		servicePorts = append(servicePorts, corev1.ServicePort{
-			Port:       httpPort,
-			TargetPort: intstr.FromInt(int(httpPort)),
-			Protocol:   corev1.ProtocolTCP,
-			Name:       "http",
-		})
+		svcPort = corev1.ServicePort{
+			Name:     "http-port",
+			Protocol: corev1.ProtocolTCP,
+			Port:     18080,
+			TargetPort: intstr.IntOrString{ // ИСПОЛЬЗУЕМ: intstr.IntOrString
+				Type:   intstr.Int, // ИСПОЛЬЗУЕМ: intstr.Int
+				IntVal: 18080,
+			},
+		}
 	}
-
-	// --- Создание Service ---
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName,
+			Name:      nifiRegistry.Name,
 			Namespace: nifiRegistry.Namespace,
 			Labels:    labels,
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: labels,
-			Ports:    servicePorts,
+			Ports:    []corev1.ServicePort{svcPort},
 			Type:     corev1.ServiceTypeClusterIP,
 		},
 	}
-	ctrl.SetControllerReference(nifiRegistry, svc, scheme)
+
 	return svc
 }

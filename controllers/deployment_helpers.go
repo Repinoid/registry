@@ -8,7 +8,7 @@ import (
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1" // <--- ДОБАВЛЕН ИМПОРТ metav1
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -34,7 +34,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		// Имя PVC должно совпадать с тем, что мы создаем в pvcForNifiRegistry
-		pvcName := fmt.Sprintf("%s-flow-storage", nifiRegistry.Name) 
+		pvcName := fmt.Sprintf("%s-flow-storage", nifiRegistry.Name)
 
 		// Добавляем PVC Volume
 		volumes = append(volumes, corev1.Volume{
@@ -83,7 +83,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 	if nifiRegistry.Spec.Database.Enabled {
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  "NIFI_REGISTRY_DB_IMPLEMENTATION",
-			Value: "postgresql", 
+			Value: "postgresql",
 		})
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  "NIFI_REGISTRY_DB_URL",
@@ -108,15 +108,27 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 		}
 	}
 
+	// Конфигурация порта
+	var containerPort corev1.ContainerPort
+
+	if nifiRegistry.Spec.Tls.Enabled {
+		containerPort = corev1.ContainerPort{
+			ContainerPort: 8443,
+			Name:          "https-port",
+		}
+	} else {
+		containerPort = corev1.ContainerPort{
+			ContainerPort: 18080,
+			Name:          "http-port",
+		}
+	}
+
 	// Основной контейнер NiFi Registry
 	nifiRegistryContainer := corev1.Container{
-		Name:    "nifi-registry",
-		Image:   fullImage,
+		Name:  "nifi-registry",
+		Image: fullImage,
 		Ports: []corev1.ContainerPort{
-			{
-				ContainerPort: 18080,
-				Name:          "http-port",
-			},
+			containerPort,
 		},
 		VolumeMounts: volumeMounts,
 		Resources:    nifiRegistry.Spec.Resources,

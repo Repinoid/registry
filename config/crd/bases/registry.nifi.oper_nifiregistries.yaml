@@ -17,7 +17,7 @@ spec:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: NifiRegistry — это Custom Resource для деплоя NiFi Registry.
+        description: NifiRegistry is the Schema for the nifiregistries API
         properties:
           apiVersion:
             description: |-
@@ -37,85 +37,81 @@ spec:
           metadata:
             type: object
           spec:
-            description: NifiRegistrySpec определяет желаемое состояние NifiRegistry
+            description: NifiRegistrySpec defines the desired state of NifiRegistry
             properties:
               database:
-                description: Конфигурация подключения к внешней БД (используется NiFi
-                  Registry)
+                description: Database defines the database connection details for
+                  NiFi Registry.
                 properties:
                   driverClass:
+                    description: DriverClass is the JDBC driver class (e.g., org.postgresql.Driver).
                     type: string
                   enabled:
-                    default: false
+                    description: Enabled determines whether to use an external database.
                     type: boolean
                   secretName:
+                    description: SecretName will be used to hardcode the password
+                      string into the Deployment Environment Variable.
                     type: string
                   url:
+                    description: Url is the JDBC connection URL for the database (e.g.,
+                      jdbc:postgresql://host:port/dbname).
                     type: string
                   username:
+                    description: Username is the database username.
                     type: string
-                required:
-                - enabled
                 type: object
               flowStorage:
-                description: FlowStorageSpec определяет спецификацию Persistent Volume
-                  Claim (PVC)
+                description: FlowStorage defines persistent storage configuration
+                  for flow definitions.
                 properties:
                   enabled:
-                    default: true
+                    description: Enabled determines whether to use persistent storage
+                      for flows.
                     type: boolean
-                  size:
-                    anyOf:
-                    - type: integer
-                    - type: string
-                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                    x-kubernetes-int-or-string: true
-                  storageClass:
+                  storageClassName:
+                    description: StorageClassName defines the StorageClass to use
+                      for the PVC.
                     type: string
-                required:
-                - enabled
-                - size
+                  storageSize:
+                    description: StorageSize defines the size of the PersistentVolumeClaim
+                      (e.g., 1Gi).
+                    type: string
                 type: object
               image:
-                description: Image, Repository, Tag
+                description: Image defines the container image used for NiFi Registry.
                 properties:
                   repository:
+                    description: Repository is the image repository (e.g., apache/nifi-registry).
                     type: string
                   tag:
+                    description: Tag is the image tag (e.g., 1.25.0).
                     type: string
                 type: object
-              keycloak:
-                description: KeycloakSpec определяет настройки Keycloak OIDC
-                properties:
-                  claimIdentifyingUser:
-                    type: string
-                  clientId:
-                    type: string
-                  clientSecretName:
-                    type: string
-                  discoveryUrl:
-                    type: string
-                type: object
-              postgresql:
-                description: Конфигурация для развертывания PostgreSQL (управляется
-                  оператором)
+              postgreSQL:
+                description: PostgreSQL defines the specification for an optional
+                  embedded PostgreSQL instance.
                 properties:
                   enabled:
-                    default: false
+                    description: Enabled determines whether to deploy an embedded
+                      PostgreSQL instance.
                     type: boolean
                   image:
+                    description: Image defines the PostgreSQL container image (e.g.,
+                      postgres:15-alpine).
                     type: string
                   size:
-                    default: 1Gi
+                    description: Size defines the size of the PersistentVolumeClaim
+                      for PostgreSQL data (e.g., 2Gi).
                     type: string
                   storageClass:
+                    description: StorageClass defines the StorageClass to use for
+                      the PostgreSQL PVC.
                     type: string
-                required:
-                - enabled
                 type: object
               resources:
-                description: Resources определяет ограничения ресурсов (CPU/Memory)
-                  для контейнера NiFi Registry.
+                description: Resources defines the resource requests and limits for
+                  the NiFi Registry Pod.
                 properties:
                   claims:
                     description: |-
@@ -170,36 +166,27 @@ spec:
                     type: object
                 type: object
               size:
-                default: 1
+                description: Size is the size of the NiFi Registry cluster.
                 format: int32
                 minimum: 1
                 type: integer
               tls:
-                description: TlsSpec определяет настройки TLS
+                description: Tls defines the TLS/SSL configuration for NiFi Registry.
                 properties:
-                  adminIdentity:
-                    type: string
                   enabled:
-                    default: false
+                    description: Enabled determines whether to enable TLS/SSL for
+                      the NiFi Registry service.
                     type: boolean
-                  host:
-                    type: string
-                  keystorePassword:
-                    type: string
-                  port:
-                    default: 8443
-                    format: int32
-                    type: integer
-                  truststorePassword:
-                    type: string
-                required:
-                - enabled
                 type: object
+            required:
+            - size
             type: object
           status:
-            description: NifiRegistryStatus определяет наблюдаемое состояние NifiRegistry
+            description: NifiRegistryStatus defines the observed state of NifiRegistry
             properties:
               conditions:
+                description: Conditions represent the latest available observations
+                  of an object's state
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for

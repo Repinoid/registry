@@ -10,140 +10,40 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
-	ctrl "sigs.k8s.io/controller-runtime"
+	// ДОБАВЛЕН ИМПОРТ intstr
+	intstr "k8s.io/apimachinery/pkg/util/intstr"
 )
 
 const (
-	PostgresServiceName = "postgres-service"
-	PostgresPort        = 5432
+	postgresName = "postgresql"
 )
 
-// pvcForPostgreSQL генерирует PersistentVolumeClaim для PostgreSQL data
-func pvcForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
-	name := fmt.Sprintf("%s-postgres-data", nifiRegistry.Name)
-	labels := map[string]string{"app": nifiRegistry.Name, "db": "postgresql"}
-
-	// ВАЖНО: Мы используем ресурсный объект resource.Quantity, который требует соответствующего импорта (k8s.io/apimachinery/pkg/api/resource)
-	size, err := resource.ParseQuantity(nifiRegistry.Spec.PostgreSQL.Size)
-	if err != nil {
-		size = resource.MustParse("1Gi") // Значение по умолчанию
-	}
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nifiRegistry.Namespace,
-			Labels:    labels,
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
-			},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: size,
-				},
-			},
-		},
-	}
-
-	if nifiRegistry.Spec.PostgreSQL.StorageClass != "" {
-		pvc.Spec.StorageClassName = &nifiRegistry.Spec.PostgreSQL.StorageClass
-	}
-
-	ctrl.SetControllerReference(nifiRegistry, pvc, nil)
-	return pvc
-}
-
-// serviceForPostgreSQL генерирует Service для PostgreSQL
-func serviceForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.Service {
-	// Имя сервиса должно совпадать с тем, что мы хардкодили в NIFI_REGISTRY_DB_URL
-	name := PostgresServiceName
-	labels := map[string]string{"app": nifiRegistry.Name, "db": "postgresql"}
-
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nifiRegistry.Namespace,
-			Labels:    labels,
-		},
-		Spec: corev1.ServiceSpec{
-			Selector: labels,
-			Ports: []corev1.ServicePort{
-				{
-					Protocol:   corev1.ProtocolTCP,
-					Port:       PostgresPort,
-					TargetPort: intstr.FromInt(PostgresPort),
-					Name:       "postgres",
-				},
-			},
-			Type: corev1.ServiceTypeClusterIP,
-		},
-	}
-
-	ctrl.SetControllerReference(nifiRegistry, svc, nil)
-	return svc
-}
-
-// deploymentForPostgreSQL генерирует Deployment для PostgreSQL
+// deploymentForPostgreSQL возвращает Deployment для встроенного PostgreSQL.
 func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Deployment {
-	labels := map[string]string{"app": nifiRegistry.Name, "db": "postgresql"}
+	labels := map[string]string{"app": nifiRegistry.Name, "component": postgresName}
 	replicas := int32(1)
 
-	dbSpec := nifiRegistry.Spec.Database
-	postgresImage := nifiRegistry.Spec.PostgreSQL.Image
+	// Пароль для PostgreSQL (используем значение из spec.database.secretName)
+	pgPassword := nifiRegistry.Spec.Database.SecretName
 
-	// Определяем переменные окружения для PostgreSQL
 	envVars := []corev1.EnvVar{
 		{
 			Name:  "POSTGRES_USER",
-			Value: dbSpec.Username,
+			Value: nifiRegistry.Spec.Database.Username,
 		},
 		{
-			Name: "POSTGRES_DB",
-			// Название БД берем "nifiregistry", что соответствует URL подключения NiFi Registry
+			Name:  "POSTGRES_PASSWORD",
+			Value: pgPassword,
+		},
+		{
+			Name:  "POSTGRES_DB",
 			Value: "nifiregistry",
-		},
-	}
-
-	// Пароль берем из Secret
-	if dbSpec.SecretName != "" {
-		envVars = append(envVars, corev1.EnvVar{
-			Name: "POSTGRES_PASSWORD",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: dbSpec.SecretName,
-					},
-					Key: "password", // Используем ключ "password" из Secret
-				},
-			},
-		})
-	}
-
-	// Контейнер PostgreSQL
-	postgresContainer := corev1.Container{
-		Name:  "postgresql",
-		Image: postgresImage,
-		Ports: []corev1.ContainerPort{
-			{
-				ContainerPort: PostgresPort,
-				Name:          "postgres",
-			},
-		},
-		Env: envVars,
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "postgres-data",
-				MountPath: "/var/lib/postgresql/data",
-			},
 		},
 	}
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-postgresql", nifiRegistry.Name),
+			Name:      fmt.Sprintf("%s-%s", nifiRegistry.Name, postgresName),
 			Namespace: nifiRegistry.Namespace,
 			Labels:    labels,
 		},
@@ -158,15 +58,30 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
-						postgresContainer,
+						{
+							Name:  postgresName,
+							Image: nifiRegistry.Spec.PostgreSQL.Image,
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: 5432,
+									Name:          "tcp-port",
+								},
+							},
+							Env: envVars,
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      fmt.Sprintf("%s-postgres-data", nifiRegistry.Name),
+									MountPath: "/var/lib/postgresql/data",
+								},
+							},
+						},
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: "postgres-data",
+							Name: fmt.Sprintf("%s-postgres-data", nifiRegistry.Name),
 							VolumeSource: corev1.VolumeSource{
 								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 									ClaimName: fmt.Sprintf("%s-postgres-data", nifiRegistry.Name),
-									ReadOnly:  false,
 								},
 							},
 						},
@@ -176,6 +91,66 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 		},
 	}
 
-	ctrl.SetControllerReference(nifiRegistry, dep, nil)
 	return dep
+}
+
+// serviceForPostgreSQL возвращает Service для встроенного PostgreSQL.
+func serviceForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.Service {
+	labels := map[string]string{"app": nifiRegistry.Name, "component": postgresName}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "postgres-service", // Статичное имя для подключения NiFi Registry
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{
+				{
+					Name:     "tcp-port",
+					Protocol: corev1.ProtocolTCP,
+					Port:     5432,
+					// ИСПРАВЛЕНО: используем intstr для IntOrString и Int
+					TargetPort: intstr.IntOrString{
+						Type:   intstr.Int,
+						IntVal: 5432,
+					},
+				},
+			},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+
+	return svc
+}
+
+// pvcForPostgreSQL возвращает PVC для данных PostgreSQL.
+func pvcForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
+	labels := map[string]string{"app": nifiRegistry.Name, "component": postgresName}
+	name := fmt.Sprintf("%s-postgres-data", nifiRegistry.Name)
+	postgresSpec := nifiRegistry.Spec.PostgreSQL
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse(postgresSpec.Size),
+				},
+			},
+		},
+	}
+
+	// Используем StorageClass, который мы только что вернули в types.go
+	if postgresSpec.StorageClass != "" {
+		pvc.Spec.StorageClassName = &postgresSpec.StorageClass
+	}
+
+	return pvc
 }

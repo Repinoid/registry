@@ -1,0 +1,38 @@
+# config/samples/registry_v1_nifiregistry_test.yaml
+apiVersion: registry.nifi.oper/v1
+kind: NifiRegistry
+metadata:
+  labels:
+    app.kubernetes.io/name: nifiregistry
+    app.kubernetes.io/instance: nifiregistry-sample
+    app.kubernetes.io/part-of: nreg-oper
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: nreg-oper
+  name: nifiregistry-sample
+spec:
+  size: 1
+  image:
+    repository: apache/nifi-registry
+    tag: 1.25.0
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  # Конфигурация базы данных
+  database:
+    enabled: true
+    # Пароль хардкодится прямо в Deployment (согласно нашему соглашению)
+    secretName: postgres-password 
+    username: nifiregistry
+    # URL для подключения к PostgreSQL-Service, который мы развертываем
+    url: jdbc:postgresql://postgres-service:5432/nifiregistry
+    driverClass: org.postgresql.Driver
+  # Конфигурация PostgreSQL, которая будет развернута оператором
+  postgreSQL:
+    enabled: true
+    image: postgres:15-alpine
+    size: 200Mi # Размер PVC для БД
+    
