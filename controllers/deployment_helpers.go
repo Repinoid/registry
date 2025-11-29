@@ -16,76 +16,27 @@ import (
 // deploymentForNifiRegistry генерирует Deployment для NiFi Registry
 func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *appsv1.Deployment {
 	labels := map[string]string{"app": nifiRegistry.Name}
+
 	// Используем поле Size из CRD
 	replicas := nifiRegistry.Spec.Size
 
-	// Имя ConfigMap
-	configMapName := fmt.Sprintf("%s-config", nifiRegistry.Name)
-	// Имя PVC
-	pvcName := fmt.Sprintf("%s-flow", nifiRegistry.Name)
-
-	const flowStorageMountPath = "/opt/nifi-registry/nifi-registry-current/flow_storage"
-
-	// Контейнер Init для копирования конфигурации (log4j2.xml и nifi-registry.properties)
-	initConfigCopyContainer := corev1.Container{
-		Name:    "init-config-copy",
-		Image:   "busybox",
-		Command: []string{"sh", "-c", "cp /config-source/* /opt/nifi-registry/nifi-registry-current/conf/"},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "config-volume",
-				MountPath: "/config-source",
-			},
-			{
-				Name:      "config-target-volume",
-				MountPath: "/opt/nifi-registry/nifi-registry-current/conf",
-			},
-		},
-	}
-
-	// КОНТЕЙНЕР INIT ДЛЯ ПРАВ ДОСТУПА (УСИЛЕННЫЙ)
-	initDataChownContainer := corev1.Container{
-		Name:    "init-data-chown",
-		Image:   "busybox",
-		Command: []string{"sh", "-c", fmt.Sprintf("chown -R 1000:1000 /opt/nifi-registry/nifi-registry-current && chmod -R 700 %s", flowStorageMountPath)},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "flow-storage-volume",
-				MountPath: flowStorageMountPath,
-			},
-		},
-	}
-
-	// ИСПРАВЛЕНИЕ ОШИБКИ: Формируем полный образ из структуры Spec.Image
+	// Формируем полный образ из структуры Spec.Image
 	fullImage := fmt.Sprintf("%s:%s", nifiRegistry.Spec.Image.Repository, nifiRegistry.Spec.Image.Tag)
 
 	// Основной контейнер NiFi Registry
 	nifiRegistryContainer := corev1.Container{
 		Name:  "nifi-registry",
-		Image: fullImage, // <--- ИСПРАВЛЕНО
+		Image: fullImage,
 		Ports: []corev1.ContainerPort{
 			{
+				// Порт берется из Service (18080 или 8443)
 				ContainerPort: 18080,
 				Name:          "http-port",
 			},
 		},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "config-target-volume",
-				MountPath: "/opt/nifi-registry/nifi-registry-current/conf",
-			},
-			{
-				Name:      "flow-storage-volume",
-				MountPath: flowStorageMountPath,
-			},
-		},
-		Env: []corev1.EnvVar{
-			{
-				Name:  "NIFI_REGISTRY_HOME",
-				Value: "/opt/nifi-registry/nifi-registry-current",
-			},
-		},
-		Resources: nifiRegistry.Spec.Resources, // <-- ИСПОЛЬЗУЕМ ПОЛЕ Resources
+		VolumeMounts: nil, // УДАЛЕНО: Больше нет монтирования томов
+		Env:          nil, // УДАЛЕНО: Больше нет переменных окружения (NIFI_REGISTRY_HOME)
+		Resources:    nifiRegistry.Spec.Resources,
 	}
 
 	dep := &appsv1.Deployment{
@@ -104,46 +55,11 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					// Init-контейнеры
-					InitContainers: []corev1.Container{
-						initConfigCopyContainer,
-						initDataChownContainer,
-					},
-					// Основные контейнеры
+					InitContainers: nil, // УДАЛЕНО: Init-контейнеры
 					Containers: []corev1.Container{
 						nifiRegistryContainer,
 					},
-					// Volumes (Тома)
-					Volumes: []corev1.Volume{
-						// ConfigMap Volume
-						{
-							Name: "config-volume",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: configMapName,
-									},
-								},
-							},
-						},
-						// EmptyDir для записи ConfigMap в папку conf
-						{
-							Name: "config-target-volume",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						},
-						// PVC Volume для хранения потоков
-						{
-							Name: "flow-storage-volume",
-							VolumeSource: corev1.VolumeSource{
-								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: pvcName,
-									ReadOnly:  false,
-								},
-							},
-						},
-					},
+					Volumes: nil, // УДАЛЕНО: Тома
 				},
 			},
 		},

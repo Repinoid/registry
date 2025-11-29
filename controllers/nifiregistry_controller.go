@@ -51,34 +51,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 2. Create or Update ConfigMap
-	cm := configMapForNifiRegistry(nifiRegistry, r.Scheme)
-	if err := controllerutil.SetControllerReference(nifiRegistry, cm, r.Scheme); err != nil {
-		return ctrl.Result{}, err
-	}
-	foundCM := &corev1.ConfigMap{}
-	err = r.Get(ctx, types.NamespacedName{Name: cm.Name, Namespace: cm.Namespace}, foundCM)
-	if err != nil && errors.IsNotFound(err) {
-		log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
-		err = r.Create(ctx, cm)
-		if err != nil {
-			log.Error(err, "Failed to create new ConfigMap")
-			return ctrl.Result{}, err
-		}
-	} else if err != nil {
-		return ctrl.Result{}, err
-	} else {
-		// Update existing ConfigMap
-		if foundCM.Data["log4j2.xml"] != cm.Data["log4j2.xml"] || foundCM.Data["nifi-registry.properties"] != cm.Data["nifi-registry.properties"] {
-			log.Info("Updating ConfigMap", "ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
-			cm.ObjectMeta.ResourceVersion = foundCM.ObjectMeta.ResourceVersion
-			err = r.Update(ctx, cm)
-			if err != nil {
-				log.Error(err, "Failed to update ConfigMap")
-				return ctrl.Result{}, err
-			}
-		}
-	}
+	// 2. УДАЛЕНО: Create or Update ConfigMap
 
 	// 3. Create or Update Service
 	svc := serviceForNifiRegistry(nifiRegistry, r.Scheme)
@@ -98,25 +71,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// 4. Create or Update PVC (только если FlowStorage задан)
-	if nifiRegistry.Spec.FlowStorage.Enabled { // <--- ИСПРАВЛЕНИЕ ЗДЕСЬ
-		pvc := pvcForNifiRegistry(nifiRegistry, r.Scheme)
-		if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
-			return ctrl.Result{}, err
-		}
-		foundPVC := &corev1.PersistentVolumeClaim{}
-		err = r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, foundPVC)
-		if err != nil && errors.IsNotFound(err) {
-			log.Info("Creating a new PVC", "PVC.Namespace", pvc.Namespace, "PVC.Name", pvc.Name)
-			err = r.Create(ctx, pvc)
-			if err != nil {
-				log.Error(err, "Failed to create new PVC")
-				return ctrl.Result{}, err
-			}
-		} else if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	// 4. УДАЛЕНО: Create or Update PVC
 
 	// 5. Create or Update Deployment
 	dep := deploymentForNifiRegistry(nifiRegistry, r.Scheme)
@@ -144,8 +99,6 @@ func (r *NifiRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&registryv1.NifiRegistry{}).
 		Owns(&appsv1.Deployment{}).
-		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Service{}).
-		Owns(&corev1.PersistentVolumeClaim{}).
 		Complete(r)
 }
