@@ -56,8 +56,8 @@ type NifiRegistrySpec struct {
 
 // ImageSpec defines the container image properties
 type ImageSpec struct {
-	Repository string `json:"repository"`
-	Tag        string `json:"tag"`
+	Repository string            `json:"repository"`
+	Tag        string            `json:"tag"`
 	PullPolicy corev1.PullPolicy `json:"pullPolicy,omitempty"`
 }
 
@@ -81,9 +81,9 @@ type KeycloakSpec struct {
 
 // FlowStorageSpec defines the persistent storage for flow versions
 type FlowStorageSpec struct {
-	Enabled      bool             `json:"enabled"`
+	Enabled      bool              `json:"enabled"`
 	Size         resource.Quantity `json:"size"`
-	StorageClass string           `json:"storageClass"`
+	StorageClass string            `json:"storageClass"`
 }
 
 // DatabaseSpec defines the external database configuration
@@ -104,7 +104,7 @@ type NifiRegistryStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMapKey:"type"`
-	
+
 	// State represents the current high-level state of the NiFi Registry resource.
 	// For example: Creating, Running, Failed, Upgrading.
 	// +optional

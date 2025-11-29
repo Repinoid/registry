@@ -1,4 +1,3 @@
-
 // controllers/deployment_helpers.go
 
 package controllers
@@ -58,7 +57,7 @@ func createInitContainers(nifiRegistry *registryv1.NifiRegistry, imageName strin
 
 			Command: []string{
 				"sh", "-c",
-				// Исправлено: копируем .properties (включая nifi-registry.properties) и .xml (Keycloak конфиг)
+				// Копируем .properties (включая nifi-registry.properties) и .xml (Keycloak конфиг)
 				fmt.Sprintf("cp -LR %s/. /conf-writable/ && cp /config-source/*.properties /conf-writable/ || true && cp /config-source/*.xml /conf-writable/",
 					nifiConfigPath),
 			},
@@ -73,17 +72,14 @@ func createInitContainers(nifiRegistry *registryv1.NifiRegistry, imageName strin
 			Image: "busybox:1.36",
 			Command: []string{
 				"sh", "-c",
-				// Убрана привязка к "database-volume", так как она теперь не нужна для внешней БД
 				"chown -R 1000:1000 /data-flow && chown -R 1000:1000 /data-ext",
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "flow-storage-volume", MountPath: "/data-flow"},
-				// {Name: "database-volume", MountPath: "/data-db"}, // УДАЛЕНО: Том для внешней БД
 				{Name: "extension-bundles-volume", MountPath: "/data-ext"},
 			},
 		},
 	}
-	// УДАЛЕНО: Init-контейнер для скачивания драйвера БД
 
 	return initContainers
 }
@@ -92,23 +88,19 @@ func createInitContainers(nifiRegistry *registryv1.NifiRegistry, imageName strin
 func createEnvVars(nifiRegistry *registryv1.NifiRegistry) []corev1.EnvVar {
 	// Основные настройки (заменяют nifi-registry.properties)
 	envVars := []corev1.EnvVar{
-		// Web Settings (nifi.registry.web.http.host/port/context.path)
+		// Web Settings
 		{Name: "NIFI_REGISTRY_WEB_HTTP_HOST", Value: "0.0.0.0"},
 		{Name: "NIFI_REGISTRY_WEB_HTTP_PORT", Value: "8080"},
 		{Name: "NIFI_REGISTRY_WEB_CONTEXT_PATH", Value: "/nifi-registry"},
 
-		// Security Settings (nifi.registry.security.user.login.identity.provider)
-		{Name: "NIFI_REGISTRY_SECURITY_USER_LOGIN_IDENTITY_PROVIDER", Value: "keycloak"},
+		// Security Settings: УБРАНО
 
 		// Flow Persistence Provider Settings (Используем настройки по умолчанию для H2)
-		// Для H2 достаточно оставить default provider (KeyValueFlowProvider), указав каталог:
 		{Name: "NIFI_REGISTRY_FLOW_PROVIDER_IMPLEMENTATION_ORG_APACHE_NIFI_REGISTRY_FLOW_KEYVALUE_KEYVALUEFLOWPROVIDER_FLOW_STORAGE_DIRECTORY", Value: "./flow_storage"},
 
 		// Registry Version
 		{Name: "NIFI_REGISTRY_VERSION", Value: "1.24.0"},
 	}
-
-	// УДАЛЕНО: Добавление переменных для внешней БД
 
 	return envVars
 }
@@ -117,7 +109,29 @@ func createEnvVars(nifiRegistry *registryv1.NifiRegistry) []corev1.EnvVar {
 func createMainContainer(nifiRegistry *registryv1.NifiRegistry, imageName string) corev1.Container {
 	volumeMounts := createVolumeMounts()
 
-	// УДАЛЕНО: Монтирование тома для драйвера БД
+	// ИСПРАВЛЕНИЕ: Гарантируем, что порты > 0
+
+	// Определяем HTTP порт
+	httpPort := int32(8080)
+	if nifiRegistry.Spec.Port != 0 {
+		httpPort = nifiRegistry.Spec.Port
+	}
+
+	containerPorts := []corev1.ContainerPort{
+		{ContainerPort: httpPort, Name: "http"},
+	}
+
+	if nifiRegistry.Spec.Tls.Enabled {
+		tlsPort := int32(8443)
+		if nifiRegistry.Spec.Tls.Port != 0 {
+			tlsPort = nifiRegistry.Spec.Tls.Port
+		}
+
+		containerPorts = append(containerPorts, corev1.ContainerPort{
+			ContainerPort: tlsPort,
+			Name:          "https",
+		})
+	}
 
 	return corev1.Container{
 		Image: imageName,
@@ -131,15 +145,13 @@ func createMainContainer(nifiRegistry *registryv1.NifiRegistry, imageName string
 			"--foreground",
 		},
 
-		Ports: []corev1.ContainerPort{
-			{ContainerPort: 8080, Name: "http"},
-			{ContainerPort: nifiRegistry.Spec.Tls.Port, Name: "https"},
-		},
+		Ports: containerPorts, // Используем исправленные порты
+
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path: "/nifi-registry",
-					Port: intstr.FromInt(8080),
+					Port: intstr.FromInt(int(httpPort)),
 				},
 			},
 			InitialDelaySeconds: 60,
@@ -150,7 +162,7 @@ func createMainContainer(nifiRegistry *registryv1.NifiRegistry, imageName string
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path: "/nifi-registry",
-					Port: intstr.FromInt(8080),
+					Port: intstr.FromInt(int(httpPort)),
 				},
 			},
 			InitialDelaySeconds: 30,
@@ -168,7 +180,6 @@ func createVolumeMounts() []corev1.VolumeMount {
 		{Name: "logs-volume", MountPath: "/opt/nifi-registry/nifi-registry-current/logs"},
 		{Name: "flow-storage-volume", MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage"},
 		{Name: "extension-bundles-volume", MountPath: "/opt/nifi-registry/nifi-registry-current/extension_bundles"},
-		// УДАЛЕНО: database-volume для внешней БД
 	}
 }
 
@@ -187,12 +198,10 @@ func createVolumes(nifiRegistry *registryv1.NifiRegistry) []corev1.Volume {
 		},
 		{Name: "conf-writable", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "logs-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-		// УДАЛЕНО: database-volume
 		{Name: "extension-bundles-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-		// УДАЛЕНО: work-lib-writable
 	}
 
-	// Flow storage volume (Без изменений)
+	// Flow storage volume
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		volumes = append(volumes, corev1.Volume{
 			Name: "flow-storage-volume",
