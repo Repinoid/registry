@@ -1,3 +1,5 @@
+// controllers/generateNifiRegistryProperties.go
+
 package controllers
 
 import (
@@ -6,46 +8,39 @@ import (
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 )
 
-// (Версия 16.0: Единый SQL Flow Provider для H2)
-// generateNifiRegistryProperties генерирует содержимое nifi-registry.properties
+// (Версия 21.0: Возвращаем настройки ТОЛЬКО для PostgreSQL. Для H2 - пусто.)
 func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPassword string) string {
-	var effectiveFlowProvider string
 	var dbConfigSection string
 
+	// Настройки для Flow Persistence Provider и DB должны генерироваться ТОЛЬКО
+	// если используется внешняя БД (PostgreSQL), так как H2 использует дефолты.
 	if nifiRegistry.Spec.Database.Enabled {
 		// Конфигурация для внешней БД (PostgreSQL)
-		effectiveFlowProvider = "org.apache.nifi.registry.flow.sql.SqlFlowProvider"
+		effectiveFlowProvider := "org.apache.nifi.registry.flow.sql.SqlFlowProvider"
+		
 		dbConfigSection = fmt.Sprintf(`
+# Flow Persistence Provider Settings
+nifi.registry.flow.provider=%s
+
 # Database Configuration (PostgreSQL)
 nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
 nifi.registry.db.url=%s
 nifi.registry.db.driver.class=%s
 nifi.registry.db.username=%s
-nifi.registry.db.password=%s`,
-			nifiRegistry.Spec.Database.Url, nifiRegistry.Spec.Database.DriverClass,
-			nifiRegistry.Spec.Database.Username, dbPassword)
-	} else {
-		// КОНФИГУРАЦИЯ ДЛЯ H2 (Встроенная БД)
-		// Устанавливаем SQL Flow Provider, который использует настроенный ниже H2-бэкенд.
-		effectiveFlowProvider = "org.apache.nifi.registry.flow.sql.SqlFlowProvider"
-		dbConfigSection = `
-# Database Configuration (H2 - Embedded, official defaults)
-nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
-nifi.registry.db.url=jdbc:h2:./database/nifi-registry-primary
-nifi.registry.db.driver.class=org.h2.Driver
-nifi.registry.db.username=nifireg
-nifi.registry.db.password=nifireg` 
+nifi.registry.db.password=%s
+`,
+			effectiveFlowProvider,
+			nifiRegistry.Spec.Database.Url, 
+			nifiRegistry.Spec.Database.DriverClass,
+			nifiRegistry.Spec.Database.Username, 
+			dbPassword)
 	}
 
+	// Генерируем остальные общие настройки (Web, Security), которые всегда должны быть
+	// переопределены, независимо от H2/PostgreSQL.
 	return fmt.Sprintf(`
 # NiFi Registry Version
 nifi.registry.version=1.24.0
-
-# Flow Persistence Provider Settings
-nifi.registry.flow.provider=%s
-nifi.registry.flow.provider.implementation.org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider.flow.storage.directory=./flow_storage
-nifi.registry.flow.provider.implementation.org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider.flow.storage.file=./flow_storage/flow.snapshot
-nifi.registry.flow.provider.implementation.org.apache.nifi.registry.flow.keyvalue.KeyValueFlowProvider.flow.storage.max.entries=10000
 
 %s
 
@@ -57,8 +52,6 @@ nifi.registry.web.api.context.path=/nifi-registry-api
 nifi.registry.web.jetty.threads=200
 
 # Security Settings
-# ВРЕМЕННО ОТКЛЮЧЕНО
-# nifi.registry.security.user.login.identity.provider=keycloak 
 nifi.registry.security.user.login.identity.provider=
 
 # Access Policy Provider Settings
@@ -85,5 +78,5 @@ nifi.registry.registry.aliases.file=./conf/registry-aliases.xml
 
 # Extension Bundles Settings
 nifi.registry.extension.bundles.directory=./extension_bundles`,
-		effectiveFlowProvider, dbConfigSection)
+		dbConfigSection)
 }
