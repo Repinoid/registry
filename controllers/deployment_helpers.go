@@ -65,6 +65,14 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 		})
 	}
 
+	// 4. Environment Variables (Добавляем массив переменных окружения)
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "NIFI_REGISTRY_WEB_HTTP_HOST",
+			Value: "0.0.0.0", // Исправляем ошибку Connection Refused
+		},
+	}
+
 	// Основной контейнер NiFi Registry
 	nifiRegistryContainer := corev1.Container{
 		Name:  "nifi-registry",
@@ -77,6 +85,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *ru
 		},
 		VolumeMounts: volumeMounts,
 		Resources:    nifiRegistry.Spec.Resources,
+		Env:          envVars, // <-- ПРИМЕНЯЕМ массив envVars к контейнеру
 	}
 
 	dep := &appsv1.Deployment{
