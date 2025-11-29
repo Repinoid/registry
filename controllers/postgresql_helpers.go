@@ -10,12 +10,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	// ДОБАВЛЕН ИМПОРТ intstr
 	intstr "k8s.io/apimachinery/pkg/util/intstr"
 )
 
 const (
 	postgresName = "postgresql"
+	// !!! ИЗМЕНЕНИЕ !!! Используем подкаталог для избежания конфликта с lost+found
+	postgresDataSubPath = "pgdata"
 )
 
 // deploymentForPostgreSQL возвращает Deployment для встроенного PostgreSQL.
@@ -38,6 +39,11 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 		{
 			Name:  "POSTGRES_DB",
 			Value: "nifiregistry",
+		},
+		// !!! ДОБАВЛЕНО !!! Переопределяем путь данных, чтобы использовать подкаталог внутри монтируемого тома
+		{
+			Name:  "PGDATA",
+			Value: fmt.Sprintf("/var/lib/postgresql/data/%s", postgresDataSubPath),
 		},
 	}
 
@@ -72,6 +78,8 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 								{
 									Name:      fmt.Sprintf("%s-postgres-data", nifiRegistry.Name),
 									MountPath: "/var/lib/postgresql/data",
+									// !!! ДОБАВЛЕНО !!! Монтируем PVC как подкаталог, но сам контейнер будет использовать PGDATA
+									SubPath: postgresDataSubPath,
 								},
 							},
 						},
@@ -111,7 +119,6 @@ func serviceForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.Service
 					Name:     "tcp-port",
 					Protocol: corev1.ProtocolTCP,
 					Port:     5432,
-					// ИСПРАВЛЕНО: используем intstr для IntOrString и Int
 					TargetPort: intstr.IntOrString{
 						Type:   intstr.Int,
 						IntVal: 5432,
@@ -147,7 +154,7 @@ func pvcForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentV
 		},
 	}
 
-	// Используем StorageClass, который мы только что вернули в types.go
+	// Используем StorageClass
 	if postgresSpec.StorageClass != "" {
 		pvc.Spec.StorageClassName = &postgresSpec.StorageClass
 	}
