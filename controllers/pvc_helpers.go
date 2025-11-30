@@ -7,100 +7,94 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// pvcForPostgreSQL возвращает PVC для PostgreSQL.
+// pvcForPostgreSQL возвращает PVC для базы данных PostgreSQL.
 func pvcForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
-	labels := map[string]string{"app": nifiRegistry.Name + "-postgres"}
+	name := nifiRegistry.Name + "-postgres"
+	labels := map[string]string{"app": name}
+	size := nifiRegistry.Spec.PostgreSQL.Size
 	storageClass := nifiRegistry.Spec.PostgreSQL.StorageClass
-	storageSize := resource.MustParse(nifiRegistry.Spec.PostgreSQL.Size)
+
+	if size == "" {
+		size = "1Gi" // Размер по умолчанию
+	}
 
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      nifiRegistry.Name + "-postgres",
+			Name:      name,
 			Namespace: nifiRegistry.Namespace,
 			Labels:    labels,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
-			},
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: storageSize,
+					corev1.ResourceStorage: resource.MustParse(size),
 				},
 			},
+			StorageClassName: &storageClass,
 		},
 	}
-
-	if storageClass != "" {
-		pvc.Spec.StorageClassName = &storageClass
-	}
-
 	return pvc
 }
 
-// pvcForNifiRegistry возвращает PVC для Flow Storage NiFi Registry.
-func pvcForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.PersistentVolumeClaim {
-	labels := map[string]string{"app": nifiRegistry.Name}
-	storageClass := nifiRegistry.Spec.FlowStorage.StorageClass 
-	storageSize := resource.MustParse(nifiRegistry.Spec.FlowStorage.Size) 
+// pvcForFlowStorage возвращает PVC для каталога flows NiFi Registry.
+func pvcForFlowStorage(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
+	name := nifiRegistry.Name + "-flow"
+	labels := map[string]string{"app": nifiRegistry.Name + "-registry"}
+	size := nifiRegistry.Spec.FlowStorage.Size
+	storageClass := nifiRegistry.Spec.FlowStorage.StorageClass
+
+	if size == "" {
+		size = "1Gi" // Размер по умолчанию
+	}
 
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      nifiRegistry.Name + "-flow",
+			Name:      name,
 			Namespace: nifiRegistry.Namespace,
 			Labels:    labels,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
-			},
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: storageSize,
+					corev1.ResourceStorage: resource.MustParse(size),
 				},
 			},
+			StorageClassName: &storageClass,
 		},
 	}
-
-	if storageClass != "" {
-		pvc.Spec.StorageClassName = &storageClass
-	}
-
 	return pvc
 }
 
-// pvcForNifiRegistryLib возвращает PVC для lib NiFi Registry.
-func pvcForNifiRegistryLib(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
-	labels := map[string]string{"app": nifiRegistry.Name}
-	storageClass := nifiRegistry.Spec.FlowStorage.StorageClass 
-	
-	// Используем размер FlowStorage, так как отдельного поля для lib PVC нет.
-	storageSize := resource.MustParse(nifiRegistry.Spec.FlowStorage.Size) 
+// pvcForLibStorage возвращает PVC для каталога lib NiFi Registry. <--- ДОБАВЛЕНО
+func pvcForLibStorage(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
+	name := nifiRegistry.Name + "-lib"
+	labels := map[string]string{"app": nifiRegistry.Name + "-registry"}
+	size := nifiRegistry.Spec.LibStorage.Size
+	storageClass := nifiRegistry.Spec.LibStorage.StorageClass
+
+	if size == "" {
+		size = "500Mi" // Размер по умолчанию для lib
+	}
 
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      nifiRegistry.Name + "-lib",
+			Name:      name,
 			Namespace: nifiRegistry.Namespace,
 			Labels:    labels,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
-			},
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: storageSize,
+					corev1.ResourceStorage: resource.MustParse(size),
 				},
 			},
+			StorageClassName: &storageClass,
 		},
 	}
-
-	if storageClass != "" {
-		pvc.Spec.StorageClassName = &storageClass
-	}
-
 	return pvc
 }

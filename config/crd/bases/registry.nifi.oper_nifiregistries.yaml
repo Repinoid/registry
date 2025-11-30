@@ -84,6 +84,20 @@ spec:
                   discoveryUrl:
                     type: string
                 type: object
+              libStorage:
+                description: LibStorage defines the settings for NiFi Registry library
+                  files PVC.
+                properties:
+                  enabled:
+                    description: Enabled указывает, включен ли PVC для каталога lib.
+                    type: boolean
+                  size:
+                    description: Size определяет размер PVC (например, 1Gi, 200Mi).
+                    type: string
+                  storageClass:
+                    description: StorageClass определяет имя StorageClass для PVC.
+                    type: string
+                type: object
               postgreSQL:
                 description: PostgreSQL defines the settings for the managed PostgreSQL
                   instance

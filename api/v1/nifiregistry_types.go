@@ -8,38 +8,26 @@ import (
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags at least on the top level struct.
+// NOTE: json tags are required.  Any new fields you add must have json tags.
 
-// NifiRegistrySpec defines the desired state of NifiRegistry
-type NifiRegistrySpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make manifests" to regenerate code after modifying this file
+// LibStorageSpec определяет настройки PVC для каталога библиотек NiFi Registry.
+type LibStorageSpec struct {
+	// Enabled указывает, включен ли PVC для каталога lib.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+	// Size определяет размер PVC (например, 1Gi, 200Mi).
+	// +optional
+	Size string `json:"size,omitempty"`
+	// StorageClass определяет имя StorageClass для PVC.
+	// +optional
+	StorageClass string `json:"storageClass,omitempty"`
+}
 
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=3
-	// +kubebuilder:default=1
-	Size int32 `json:"size,omitempty"`
-
-	// Image defines the Nifi Registry container image to use
-	Image ImageSpec `json:"image,omitempty"`
-
-	// Resources defines the compute resources for the Nifi Registry Pod
-	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
-
-	// Tls defines the TLS settings for the Nifi Registry
-	Tls TlsSpec `json:"tls,omitempty"`
-
-	// Keycloak defines the OIDC settings for Keycloak authentication
-	Keycloak KeycloakSpec `json:"keycloak,omitempty"`
-
-	// FlowStorage defines the settings for Nifi Registry flow persistence
-	FlowStorage FlowStorageSpec `json:"flowStorage,omitempty"`
-
-	// Database defines the external database connection settings
-	Database DatabaseSpec `json:"database,omitempty"`
-
-	// PostgreSQL defines the settings for the managed PostgreSQL instance
-	PostgreSQL PostgreSQLSpec `json:"postgreSQL,omitempty"`
+// FlowStorageSpec определяет настройки для хранилища NiFi Registry
+type FlowStorageSpec struct {
+	Enabled      bool   `json:"enabled,omitempty"`
+	Size         string `json:"size,omitempty"`
+	StorageClass string `json:"storageClass,omitempty"`
 }
 
 // ImageSpec defines the container image repository and tag
@@ -66,13 +54,6 @@ type KeycloakSpec struct {
 	ClientSecretName     string `json:"clientSecretName,omitempty"`
 }
 
-// FlowStorageSpec определяет настройки для хранилища NiFi Registry
-type FlowStorageSpec struct {
-	Enabled      bool   `json:"enabled,omitempty"`
-	Size         string `json:"size,omitempty"`
-	StorageClass string `json:"storageClass,omitempty"`
-}
-
 // DatabaseSpec defines the external database connection settings
 type DatabaseSpec struct {
 	Enabled     bool   `json:"enabled,omitempty"`
@@ -91,6 +72,42 @@ type PostgreSQLSpec struct {
 	Password     string    `json:"password,omitempty"`
 	Size         string    `json:"size,omitempty"`
 	StorageClass string    `json:"storageClass,omitempty"`
+}
+
+// NifiRegistrySpec defines the desired state of NifiRegistry
+type NifiRegistrySpec struct {
+	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+	// Important: Run "make manifests" to regenerate code after modifying this file
+
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3
+	// +kubebuilder:default=1
+	Size int32 `json:"size,omitempty"`
+
+	// Image defines the Nifi Registry container image to use
+	Image ImageSpec `json:"image,omitempty"`
+
+	// Resources defines the compute resources for the Nifi Registry Pod
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Tls defines the TLS settings for the Nifi Registry
+	Tls TlsSpec `json:"tls,omitempty"`
+
+	// Keycloak defines the OIDC settings for Keycloak authentication
+	Keycloak KeycloakSpec `json:"keycloak,omitempty"`
+
+	// FlowStorage defines the settings for Nifi Registry flow persistence
+	FlowStorage FlowStorageSpec `json:"flowStorage,omitempty"`
+
+	// LibStorage defines the settings for NiFi Registry library files PVC.
+	// +optional
+	LibStorage LibStorageSpec `json:"libStorage,omitempty"`
+
+	// Database defines the external database connection settings
+	Database DatabaseSpec `json:"database,omitempty"`
+
+	// PostgreSQL defines the settings for the managed PostgreSQL instance
+	PostgreSQL PostgreSQLSpec `json:"postgreSQL,omitempty"`
 }
 
 // NifiRegistryStatus defines the observed state of NifiRegistry

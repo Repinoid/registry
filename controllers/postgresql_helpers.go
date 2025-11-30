@@ -59,7 +59,7 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 					Containers: []corev1.Container{
 						{
 							Name:  "postgres",
-							Image: nifiRegistry.Spec.PostgreSQL.Image.Repository + ":" + nifiRegistry.Spec.PostgreSQL.Image.Tag, // <--- ИСПРАВЛЕНО: Объединение Repository и Tag
+							Image: nifiRegistry.Spec.PostgreSQL.Image.Repository + ":" + nifiRegistry.Spec.PostgreSQL.Image.Tag,
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 5432,
@@ -79,6 +79,10 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 									Name:  "POSTGRES_PASSWORD",
 									Value: dbPassword,
 								},
+								{
+									Name:  "PGDATA", // <--- ДОБАВЛЕНО: Указываем PGDATA
+									Value: "/var/lib/postgresql/data/pgdata",
+								},
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
@@ -93,7 +97,7 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      nifiRegistry.Name + "-postgres-pvc",
-									MountPath: "/var/lib/postgresql/data",
+									MountPath: "/var/lib/postgresql/data", // <--- ИСПРАВЛЕНО: Монтируем в /var/lib/postgresql/data, но данные будут в подкаталоге pgdata
 								},
 							},
 						},
