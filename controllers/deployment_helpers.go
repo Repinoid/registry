@@ -1,5 +1,3 @@
-// controllers/deployment_helpers.go
-
 package controllers
 
 import (
@@ -25,6 +23,10 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	// Имена томов
 	flowStorageVolumeName := nifiRegistry.Name + "-flow"
 	libStorageVolumeName := nifiRegistry.Name + "-lib"
+	
+    // ПУТЬ ДЛЯ ВНЕШНИХ ДРАЙВЕРОВ
+    externalLibMountPath := "/opt/nifi-registry/external_lib"
+
 
 	// Определяем, нужен ли InitContainer для копирования JDBC драйвера.
 	var initContainers []corev1.Container
@@ -38,12 +40,13 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 				Command: []string{
 					"sh",
 					"-c",
-					"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o /opt/nifi-registry/nifi-registry-current/lib/postgresql-jdbc.jar",
+					// Копируем драйвер в новый, неперекрывающий каталог: /external_lib
+					"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o " + externalLibMountPath + "/postgresql-jdbc.jar",
 				},
 				VolumeMounts: []corev1.VolumeMount{
 					{
 						Name:      libStorageVolumeName,
-						MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
+						MountPath: externalLibMountPath, // <--- ИЗМЕНЕН ПУТЬ МОНТИРОВАНИЯ
 					},
 				},
 			},
@@ -87,14 +90,14 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 				Name:  "NIFI_REGISTRY_DB_USERNAME",
 				Value: nifiRegistry.Spec.Database.Username,
 			},
-			// ПАРОЛЬ ОТКРЫТЫМ ТЕКСТОМ (для тестового стенда) <--- ИСПРАВЛЕНО
+			// ПАРОЛЬ ОТКРЫТЫМ ТЕКСТОМ (для тестового стенда)
 			{
 				Name:  "NIFI_REGISTRY_DB_PASSWORD",
 				Value: nifiRegistry.Spec.Database.Password,
 			},
 			{
 				Name:  "NIFI_REGISTRY_DB_DRIVER_LIB_DIR",
-				Value: "/opt/nifi-registry/nifi-registry-current/lib",
+				Value: externalLibMountPath, // <--- ИСПРАВЛЕНО: Указываем новый путь для драйвера
 			},
 		}
 		envVars = append(envVars, dbEnv...)
@@ -112,7 +115,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      libStorageVolumeName,
-			MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
+			MountPath: externalLibMountPath, // <--- ИЗМЕНЕН ПУТЬ МОНТИРОВАНИЯ
 		})
 	}
 
