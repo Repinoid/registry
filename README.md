@@ -11,6 +11,9 @@ done > combined_files.txt
 Правильный путь для NiFi Registry: /opt/nifi-registry/nifi-registry-current/work/jetty/nifi-registry-web-api-1.24.0.war/WEB-INF/lib/
 
 
+# Выводим содержимое файла провайдеров
+kubectl exec -it $(kubectl get pods -l app=nifiregistry-sample -o name | head -1) -- cat /opt/nifi-registry/nifi-registry-current/conf/providers.xml
+
 # Лучший вариант - смотреть ВСЕ логи и искать ошибки
 kl $(kubectl get pods -l app=nifiregistry-sample -o name | head -1) --tail=50 | grep -E "(ERROR|Error|Exception|Failed|Caused by)"
 
