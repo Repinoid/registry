@@ -1,13 +1,6 @@
-// --- START OF FILE: deployment_helpers.go ---
-//
-// Изменения:
-// 1. В NIFI_REGISTRY_JAVA_OPTS добавлены свойства Spring:
-//    -Dspring.datasource.username, -Dspring.datasource.password.
-// 2. В NIFI_REGISTRY_JAVA_OPTS добавлено свойство Spring:
-//    -Dspring.flyway.driver-class-name для принудительного использования драйвера PostgreSQL.
-// 3. ИСПРАВЛЕНИЕ ОШИБКИ КОМПИЛЯЦИИ: Исправлена структура третьего Volume (confVolumeName),
-//    чтобы он правильно использовал тип corev1.Volume вместо corev1.VolumeSource.
-//
+// Filename: deployment_helpers.go
+// Changes: Added explicit Command and Args to the main NiFi Registry container to fix the 'tail: cannot open...' error and prevent CrashLoopBackOff.
+// This ensures the container holds the main process correctly after launching NiFi Registry.
 
 package controllers
 
@@ -204,7 +197,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	}
 
 	// 3. Том EmptyDir для конфигурации (для доступа на запись InitContainers)
-	volumes = append(volumes, corev1.Volume{ // <-- ИСПРАВЛЕНО: Должен быть corev1.Volume
+	volumes = append(volumes, corev1.Volume{
 		Name: confVolumeName,
 		VolumeSource: corev1.VolumeSource{
 			EmptyDir: &corev1.EmptyDirVolumeSource{},
@@ -235,6 +228,12 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 						{
 							Name:  nifiRegistry.Name,
 							Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
+							// ******************************************************************************
+							// * ИСПРАВЛЕНИЕ: ЯВНОЕ ОПРЕДЕЛЕНИЕ COMMAND И ARGS ДЛЯ УДЕРЖАНИЯ ПРОЦЕССА *
+							// ******************************************************************************
+							Command: []string{"/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh"},
+							Args:    []string{"run"},
+							// ******************************************************************************
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 18080,
@@ -263,5 +262,3 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 
 	return dep
 }
-
-// --- END OF FILE: deployment_helpers.go ---

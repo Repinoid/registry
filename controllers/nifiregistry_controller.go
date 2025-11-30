@@ -1,4 +1,6 @@
-// controllers/nifiregistry_controller.go (Полный и исправленный файл)
+// Filename: controllers/nifiregistry_controller.go
+// Changes: Added reconcileConfigMap method and its call in Reconcile to ensure the ConfigMap (providers.xml) is created before the Registry Deployment.
+// This resolves the 'unused' error for the configMapForNifiRegistry helper function.
 
 package controllers
 
@@ -26,14 +28,14 @@ type NifiRegistryReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-//+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
-
+// +kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -115,7 +117,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// B. Создание PVC для Lib Storage (если включено ИЛИ нужна БД) <--- ИСПРАВЛЕНО
+	// B. Создание PVC для Lib Storage (если включено ИЛИ нужна БД)
 	// Lib Storage требуется для JDBC драйвера, если используется внешняя БД.
 	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		pvcLib := pvcForLibStorage(nifiRegistry)
@@ -125,7 +127,15 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// ========================================================================================
-	// 3. Управление NiFi Registry
+	// 3. Управление ConfigMap (providers.xml)
+	// ========================================================================================
+	// Вызов reconcileConfigMap для создания ConfigMap, чтобы устранить ошибку 'unused'
+	if err := r.reconcileConfigMap(ctx, log, nifiRegistry); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// ========================================================================================
+	// 4. Управление NiFi Registry
 	// ========================================================================================
 
 	// A. Создание Service для NiFi Registry
@@ -174,6 +184,40 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
+// reconcileConfigMap проверяет существование ConfigMap и создает его, если он отсутствует.
+func (r *NifiRegistryReconciler) reconcileConfigMap(ctx context.Context, log logr.Logger, nifiRegistry *registryv1.NifiRegistry) error {
+	configMapName := fmt.Sprintf("%s-config", nifiRegistry.Name)
+	foundCM := &corev1.ConfigMap{}
+
+	// 1. Попытка получить ConfigMap
+	err := r.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: nifiRegistry.Namespace}, foundCM)
+
+	if err != nil && errors.IsNotFound(err) {
+		// 2. Если не найден, СОЗДАЕМ его
+		newConfigMap := configMapForNifiRegistry(nifiRegistry, r.Scheme) // ИСПОЛЬЗУЕТ ФУНКЦИЮ configMapForNifiRegistry
+
+		if err := controllerutil.SetControllerReference(nifiRegistry, newConfigMap, r.Scheme); err != nil {
+			log.Error(err, "Failed to set controller reference for ConfigMap")
+			return err
+		}
+
+		log.Info("Creating ConfigMap (providers.xml)", "Name", configMapName)
+		err = r.Create(ctx, newConfigMap)
+		if err != nil {
+			log.Error(err, "Failed to create ConfigMap")
+			return err
+		}
+	} else if err != nil {
+		// Ошибка при получении ConfigMap
+		log.Error(err, "Failed to get ConfigMap")
+		return err
+	}
+
+	// В реальном операторе здесь должна быть логика обновления ConfigMap.
+
+	return nil
+}
+
 // ensurePVC проверяет существование PVC и создает его, если он отсутствует.
 func (r *NifiRegistryReconciler) ensurePVC(ctx context.Context, log logr.Logger, nifiRegistry *registryv1.NifiRegistry, pvc *corev1.PersistentVolumeClaim) error {
 	if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
@@ -203,5 +247,6 @@ func (r *NifiRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
+		Owns(&corev1.ConfigMap{}). // Добавлено владение ConfigMap
 		Complete(r)
 }
