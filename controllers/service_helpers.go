@@ -1,4 +1,6 @@
-// controllers/service_helpers.go
+// Filename: controllers/service_helpers.go
+// Changes: REMOVED the redundant function serviceForPostgreSQL, as it is correctly defined in
+//          controllers/postgresql_helpers.go, resolving the code duplication issue.
 
 package controllers
 
