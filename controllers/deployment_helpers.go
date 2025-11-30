@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Вспомогательная функция (обязательна для *int64) 👈 ДОБАВЛЯЕМ
+// Вспомогательная функция (обязательна для *int64)
 func int64Ptr(val int64) *int64 {
 	return &val
 }
@@ -22,12 +22,122 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	labels := map[string]string{"app": nifiRegistry.Name}
 	replicas := int32(nifiRegistry.Spec.Size)
 
-	// Имя секрета для пароля базы данных
-	dbSecretName := nifiRegistry.Spec.Database.SecretName
+	// Имена томов
+	flowStorageVolumeName := nifiRegistry.Name + "-flow"
+	libStorageVolumeName := nifiRegistry.Name + "-lib"
 
-	// Объем для данных NiFi Registry (flow storage)
-	flowStorageVolumeName := "nifi-registry-flow-storage"
-	libStorageVolumeName := "nifi-registry-lib-storage" // <--- НОВОЕ ИМЯ ТОМА
+	// Определяем, нужен ли InitContainer для копирования JDBC драйвера.
+	var initContainers []corev1.Container
+
+	// InitContainer нужен, только если используется внешняя БД (PostgreSQL)
+	if nifiRegistry.Spec.Database.Enabled {
+		initContainers = []corev1.Container{
+			{
+				Name:  "copy-postgres-driver",
+				Image: "curlimages/curl:latest",
+				Command: []string{
+					"sh",
+					"-c",
+					"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o /opt/nifi-registry/nifi-registry-current/lib/postgresql-jdbc.jar",
+				},
+				VolumeMounts: []corev1.VolumeMount{
+					{
+						Name:      libStorageVolumeName,
+						MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
+					},
+				},
+			},
+		}
+	}
+
+	// Переменные окружения NiFi Registry
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "NIFI_REGISTRY_WEB_HTTP_PORT",
+			Value: strconv.Itoa(18080),
+		},
+		{
+			Name:  "NIFI_REGISTRY_WEB_HTTP_HOST",
+			Value: "0.0.0.0",
+		},
+	}
+
+	// Если включена внешняя БД, добавляем все переменные окружения для подключения к БД
+	if nifiRegistry.Spec.Database.Enabled {
+		dbEnv := []corev1.EnvVar{
+			// Flow Persistence Provider Settings
+			{
+				Name:  "NIFI_REGISTRY_FLOW_PROVIDER",
+				Value: "org.apache.nifi.registry.flow.sql.SqlFlowProvider",
+			},
+			// Database Configuration (PostgreSQL)
+			{
+				Name:  "NIFI_REGISTRY_DB_IMPLEMENTATION",
+				Value: "org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider",
+			},
+			{
+				Name:  "NIFI_REGISTRY_DB_URL",
+				Value: nifiRegistry.Spec.Database.Url,
+			},
+			{
+				Name:  "NIFI_REGISTRY_DB_DRIVER_CLASS",
+				Value: nifiRegistry.Spec.Database.DriverClass,
+			},
+			{
+				Name:  "NIFI_REGISTRY_DB_USERNAME",
+				Value: nifiRegistry.Spec.Database.Username,
+			},
+			// ПАРОЛЬ ОТКРЫТЫМ ТЕКСТОМ (для тестового стенда) <--- ИСПРАВЛЕНО
+			{
+				Name:  "NIFI_REGISTRY_DB_PASSWORD",
+				Value: nifiRegistry.Spec.Database.Password,
+			},
+			{
+				Name:  "NIFI_REGISTRY_DB_DRIVER_LIB_DIR",
+				Value: "/opt/nifi-registry/nifi-registry-current/lib",
+			},
+		}
+		envVars = append(envVars, dbEnv...)
+	}
+
+	// VolumeMounts
+	volumeMounts := []corev1.VolumeMount{}
+	if nifiRegistry.Spec.FlowStorage.Enabled {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      flowStorageVolumeName,
+			MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
+		})
+	}
+	// LibStorage нужен, если включен FlowStorage ИЛИ Database.
+	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      libStorageVolumeName,
+			MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
+		})
+	}
+
+	// Volumes
+	volumes := []corev1.Volume{}
+	if nifiRegistry.Spec.FlowStorage.Enabled {
+		volumes = append(volumes, corev1.Volume{
+			Name: flowStorageVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: nifiRegistry.Name + "-flow",
+				},
+			},
+		})
+	}
+	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
+		volumes = append(volumes, corev1.Volume{
+			Name: libStorageVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: nifiRegistry.Name + "-lib",
+				},
+			},
+		})
+	}
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -45,30 +155,10 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					// 👈 ДОБАВЛЯЕМ ЭТОТ БЛОК
 					SecurityContext: &corev1.PodSecurityContext{
 						FSGroup: int64Ptr(1000),
 					},
-					// 👈 СРАЗУ ПОСЛЕ ЭТОГО НАЧИНАЕТСЯ InitContainers
-					InitContainers: []corev1.Container{
-						{
-							Name:  "copy-postgres-driver",
-							Image: "curlimages/curl:latest",
-							Command: []string{
-								"sh",
-								"-c",
-								"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o /opt/nifi-registry/nifi-registry-current/lib/postgresql-jdbc.jar",
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      libStorageVolumeName, // <--- ИСПОЛЬЗУЕМ НОВЫЙ ТОМ
-									MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
-									// SubPath удален
-								},
-							},
-						},
-					},
-
+					InitContainers: initContainers,
 					Containers: []corev1.Container{
 						{
 							Name:  nifiRegistry.Name,
@@ -79,39 +169,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 									Name:          "web-port",
 								},
 							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "NIFI_REGISTRY_WEB_HTTP_PORT",
-									Value: strconv.Itoa(18080),
-								},
-								{
-									Name:  "NIFI_REGISTRY_DATABASE_URL",
-									Value: nifiRegistry.Spec.Database.Url,
-								},
-								{
-									Name:  "NIFI_REGISTRY_DATABASE_DRIVER_CLASS",
-									Value: nifiRegistry.Spec.Database.DriverClass,
-								},
-								{
-									Name:  "NIFI_REGISTRY_DATABASE_DRIVER_LIB_DIR",
-									Value: "/opt/nifi-registry/nifi-registry-current/lib",
-								},
-								{
-									Name:  "NIFI_REGISTRY_DATABASE_USERNAME",
-									Value: nifiRegistry.Spec.Database.Username,
-								},
-								{
-									Name: "NIFI_REGISTRY_DATABASE_PASSWORD",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: dbSecretName,
-											},
-											Key: "password",
-										},
-									},
-								},
-							},
+							Env: envVars,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse(nifiRegistry.Spec.Resources.Requests.Cpu().String()),
@@ -122,38 +180,10 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 									corev1.ResourceMemory: resource.MustParse(nifiRegistry.Spec.Resources.Limits.Memory().String()),
 								},
 							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      libStorageVolumeName, // <--- ИСПОЛЬЗУЕМ НОВЫЙ ТОМ
-									MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
-									// SubPath удален
-								},
-								{
-									Name:      flowStorageVolumeName,
-									MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
-									// SubPath удален, монтируем весь PVC в папку /flow_storage
-								},
-							},
+							VolumeMounts: volumeMounts,
 						},
 					},
-					Volumes: []corev1.Volume{
-						{
-							Name: flowStorageVolumeName,
-							VolumeSource: corev1.VolumeSource{
-								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: nifiRegistry.Name + "-flow",
-								},
-							},
-						},
-						{
-							Name: libStorageVolumeName, // <--- НОВЫЙ ТОМ
-							VolumeSource: corev1.VolumeSource{
-								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: nifiRegistry.Name + "-lib", // <--- НОВОЕ ИМЯ PVC
-								},
-							},
-						},
-					},
+					Volumes: volumes,
 				},
 			},
 		},

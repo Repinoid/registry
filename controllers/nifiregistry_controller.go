@@ -1,4 +1,4 @@
-// controllers/nifiregistry_controller.go
+// controllers/nifiregistry_controller.go (Полный и исправленный файл)
 
 package controllers
 
@@ -58,21 +58,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if nifiRegistry.Spec.PostgreSQL.Enabled {
 		// A. Создание PVC для PostgreSQL
 		pvcPostgres := pvcForPostgreSQL(nifiRegistry)
-		if err := controllerutil.SetControllerReference(nifiRegistry, pvcPostgres, r.Scheme); err != nil {
-			log.Error(err, "Failed to set controller reference for PostgreSQL PVC")
-			return ctrl.Result{}, err
-		}
-		foundPVCPostgres := &corev1.PersistentVolumeClaim{}
-		err = r.Get(ctx, types.NamespacedName{Name: pvcPostgres.Name, Namespace: pvcPostgres.Namespace}, foundPVCPostgres)
-		if err != nil && errors.IsNotFound(err) {
-			log.Info("Creating PostgreSQL PVC", "Name", pvcPostgres.Name)
-			err = r.Create(ctx, pvcPostgres)
-			if err != nil {
-				log.Error(err, "Failed to create PostgreSQL PVC")
-				return ctrl.Result{}, err
-			}
-		} else if err != nil {
-			log.Error(err, "Failed to get PostgreSQL PVC")
+		if err := r.ensurePVC(ctx, log, nifiRegistry, pvcPostgres); err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -129,8 +115,9 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// B. Создание PVC для Lib Storage (если включено)
-	if nifiRegistry.Spec.LibStorage.Enabled {
+	// B. Создание PVC для Lib Storage (если включено ИЛИ нужна БД) <--- ИСПРАВЛЕНО
+	// Lib Storage требуется для JDBC драйвера, если используется внешняя БД.
+	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		pvcLib := pvcForLibStorage(nifiRegistry)
 		if err := r.ensurePVC(ctx, log, nifiRegistry, pvcLib); err != nil {
 			return ctrl.Result{}, err
@@ -142,7 +129,6 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// ========================================================================================
 
 	// A. Создание Service для NiFi Registry
-	// Исправленный вызов: передаем r.Scheme
 	svcRegistry := serviceForNifiRegistry(nifiRegistry, r.Scheme)
 	if err := controllerutil.SetControllerReference(nifiRegistry, svcRegistry, r.Scheme); err != nil {
 		log.Error(err, "Failed to set controller reference for Registry Service")
@@ -163,7 +149,6 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// B. Создание Deployment для NiFi Registry
-	// Исправленный вызов: передаем r.Scheme
 	depRegistry := deploymentForNifiRegistry(nifiRegistry)
 	if err := controllerutil.SetControllerReference(nifiRegistry, depRegistry, r.Scheme); err != nil {
 		log.Error(err, "Failed to set controller reference for Registry Deployment")
@@ -184,7 +169,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// ========================================================================================
-	// Вспомогательные функции
+	// Вспомогательная функция ensurePVC (оставлена в контроллере)
 	// ========================================================================================
 	return ctrl.Result{}, nil
 }
@@ -219,58 +204,4 @@ func (r *NifiRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Complete(r)
-}
-
-// getRegistryVolumeMounts возвращает VolumeMounts для пода NiFi Registry.
-func getRegistryVolumeMounts(nifiRegistry *registryv1.NifiRegistry) []corev1.VolumeMount {
-	mounts := []corev1.VolumeMount{}
-
-	// Flow Storage Mount
-	if nifiRegistry.Spec.FlowStorage.Enabled {
-		mounts = append(mounts, corev1.VolumeMount{
-			Name:      nifiRegistry.Name + "-flow",
-			MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
-		})
-	}
-
-	// Lib Storage Mount
-	if nifiRegistry.Spec.LibStorage.Enabled {
-		mounts = append(mounts, corev1.VolumeMount{
-			Name:      nifiRegistry.Name + "-lib",
-			MountPath: "/opt/nifi-registry/nifi-registry-current/lib",
-		})
-	}
-
-	return mounts
-}
-
-// getRegistryVolumes возвращает Volumes для пода NiFi Registry.
-func getRegistryVolumes(nifiRegistry *registryv1.NifiRegistry) []corev1.Volume {
-	volumes := []corev1.Volume{}
-
-	// Flow Storage PVC
-	if nifiRegistry.Spec.FlowStorage.Enabled {
-		volumes = append(volumes, corev1.Volume{
-			Name: nifiRegistry.Name + "-flow",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: nifiRegistry.Name + "-flow",
-				},
-			},
-		})
-	}
-
-	// Lib Storage PVC
-	if nifiRegistry.Spec.LibStorage.Enabled {
-		volumes = append(volumes, corev1.Volume{
-			Name: nifiRegistry.Name + "-lib",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: nifiRegistry.Name + "-lib",
-				},
-			},
-		})
-	}
-
-	return volumes
 }

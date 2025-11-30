@@ -39,7 +39,7 @@ spec:
   # Настройки Flow Storage (хранение версий потоков)
   flowStorage:
     enabled: true
-    size: 1Gi
+    size: 200Mi
     storageClass: standard # Используем стандартный StorageClass
 
   # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL) (ОТКЛЮЧЕНО)

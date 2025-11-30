@@ -81,7 +81,7 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 									Value: dbPassword,
 								},
 								{
-									Name:  "PGDATA", 
+									Name:  "PGDATA",
 									Value: "/var/lib/postgresql/data/pgdata",
 								},
 							},
