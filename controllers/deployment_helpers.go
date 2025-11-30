@@ -29,7 +29,6 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	flowStorageVolumeName := nifiRegistry.Name + "-flow"
 	libStorageVolumeName := nifiRegistry.Name + "-lib"
 	confVolumeName := "nifi-registry-conf" // EmptyDir для конфигурации (для InitContainer)
-	tlsSecretVolumeName := "tls-keystore"  // Том для Secret TLS
 	
 	// ПУТЬ ДЛЯ ВНЕШНИХ ДРАЙВЕРОВ
 	externalLibMountPath := "/opt/nifi-registry/external_lib"
@@ -37,9 +36,8 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	// ПУТЬ ДЛЯ ФАЙЛОВ КОНФИГУРАЦИИ
 	confMountPath := "/opt/nifi-registry/nifi-registry-current/conf"
     
-    // Имя TLS Secret по умолчанию (если SecretName не определено в API, используем это имя)
-    // SecretName по умолчанию = <имя ресурса>-tls-secret
-    tlsSecretName := nifiRegistry.Name + "-tls-secret"
+	// Имя TLS Secret по умолчанию (удалено из использования, оставлено как комментарий для контекста)
+    // tlsSecretName := nifiRegistry.Name + "-tls-secret"
 
 
 	// Определяем InitContainers
@@ -115,7 +113,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 				Name:  "NIFI_REGISTRY_WEB_HTTPS_PORT",
 				Value: strconv.Itoa(8443),
 			},
-			// Указываем, что keystore и truststore находятся в поддиректории /tls каталога conf
+			// Указываем, что keystore и truststore должны находиться в поддиректории /tls каталога conf
 			corev1.EnvVar{
 				Name:  "NIFI_REGISTRY_KEYSTORE_PATH",
 				Value: confMountPath + "/tls/keystore.jks",
@@ -219,7 +217,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	}
 
 	// =======================================
-	// 2. VolumeMounts (добавление TLS и Keycloak)
+	// 2. VolumeMounts (TLS Secret удален)
 	// =======================================
 
 	volumeMounts := []corev1.VolumeMount{}
@@ -246,16 +244,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		MountPath: confMountPath, // ПРАВИЛЬНЫЙ ПУТЬ
 	})
 
-	// 4. Монтирование TLS Secret (в conf/tls)
-	if nifiRegistry.Spec.Tls.Enabled {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      tlsSecretVolumeName,
-			MountPath: confMountPath + "/tls", // Монтируем Secret в поддиректорию conf/tls
-			ReadOnly:  true,
-		})
-	}
-
-	// 5. Монтирование ConfigMaps для Keycloak (в conf)
+	// 4. Монтирование ConfigMaps для Keycloak (в conf)
 	if nifiRegistry.Spec.Keycloak.Enabled {
 		// providers.xml
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -282,7 +271,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 
 
 	// =======================================
-	// 3. Volumes (добавление TLS и Keycloak)
+	// 3. Volumes (TLS Secret удален)
 	// =======================================
 
 	volumes := []corev1.Volume{}
@@ -319,29 +308,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		},
 	})
 	
-	// 4. Том для Secret (TLS Keystore/Truststore)
-	if nifiRegistry.Spec.Tls.Enabled {
-		volumes = append(volumes, corev1.Volume{
-			Name: tlsSecretVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: tlsSecretName, // <-- ИСПРАВЛЕНО: Используем имя Secret по умолчанию
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "keystore.jks",
-							Path: "keystore.jks", // Монтируется в conf/tls/keystore.jks
-						},
-						{
-							Key:  "truststore.jks",
-							Path: "truststore.jks", // Монтируется в conf/tls/truststore.jks
-						},
-					},
-				},
-			},
-		})
-	}
-
-	// 5. Тома для ConfigMaps (Keycloak/OIDC)
+	// 4. Тома для ConfigMaps (Keycloak/OIDC)
 	if nifiRegistry.Spec.Keycloak.Enabled {
 		// providers.xml
 		volumes = append(volumes, corev1.Volume{
