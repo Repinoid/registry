@@ -46,7 +46,11 @@ spec:
                     type: string
                   enabled:
                     type: boolean
+                  password:
+                    description: VVVV ДОБАВЛЕНО ЭТО ПОЛЕ VVVV
+                    type: string
                   secretName:
+                    description: ^^^^ ДОБАВЛЕНО ЭТО ПОЛЕ ^^^^
                     type: string
                   url:
                     type: string

@@ -60,7 +60,11 @@ type DatabaseSpec struct {
 	Url         string `json:"url,omitempty"`
 	DriverClass string `json:"driverClass,omitempty"`
 	Username    string `json:"username,omitempty"`
-	SecretName  string `json:"secretName,omitempty"`
+	// VVVV ДОБАВЛЕНО ЭТО ПОЛЕ VVVV
+	// +kubebuilder:validation:Required
+	Password string `json:"password,omitempty"`
+	// ^^^^ ДОБАВЛЕНО ЭТО ПОЛЕ ^^^^
+	SecretName string `json:"secretName,omitempty"`
 }
 
 // PostgreSQLSpec defines the settings for the managed PostgreSQL instance
