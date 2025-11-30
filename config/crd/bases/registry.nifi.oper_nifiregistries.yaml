@@ -80,12 +80,36 @@ spec:
                 description: Keycloak defines the OIDC settings for Keycloak authentication
                 properties:
                   claimIdentifyingUser:
+                    default: preferred_username
+                    description: ClaimIdentifyingUser is the claim in the ID token
+                      used to identify the user (e.g., preferred_username).
                     type: string
                   clientId:
                     type: string
                   clientSecretName:
+                    description: ClientSecretName is the name of the Kubernetes Secret
+                      containing the client secret.
                     type: string
                   discoveryUrl:
+                    description: DiscoveryUrl is the base URL for the OIDC provider's
+                      discovery endpoint.
+                    type: string
+                  enabled:
+                    default: false
+                    description: Enabled indicates whether Keycloak OIDC authentication
+                      is enabled.
+                    type: boolean
+                  externalUrl:
+                    description: ExternalURL is the publicly accessible root URL for
+                      the NiFi Registry (e.g., https://registry.k8c.ru).
+                    type: string
+                  initialAdminIdentity:
+                    description: InitialAdminIdentity is the username from Keycloak
+                      that will be granted initial admin privileges (e.g., root).
+                    type: string
+                  realm:
+                    description: Realm is the name of the Keycloak realm to connect
+                      to (e.g., nifier).
                     type: string
                 type: object
               libStorage:
