@@ -1,4 +1,5 @@
-// api/v1/nifiregistry_types.go
+// Filename: api/v1/nifiregistry_types.go
+// Changes: Updated KeycloakSpec to include fields for OIDC configuration (Enabled, ExternalURL, Realm, InitialAdminIdentity).
 
 package v1
 
@@ -7,8 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags.
+// EDIT THIS FILE! THIS IS SCAFFOLDING FOR YOU TO OWN!
+// NOTE: json tags are required. Any new fields you add must have json tags.
 
 // LibStorageSpec определяет настройки PVC для каталога библиотек NiFi Registry.
 type LibStorageSpec struct {
@@ -25,41 +26,61 @@ type LibStorageSpec struct {
 
 // FlowStorageSpec определяет настройки для хранилища NiFi Registry
 type FlowStorageSpec struct {
-	Enabled      bool   `json:"enabled,omitempty"`
-	Size         string `json:"size,omitempty"`
+	Enabled bool   `json:"enabled,omitempty"`
+	Size string `json:"size,omitempty"`
 	StorageClass string `json:"storageClass,omitempty"`
 }
 
 // ImageSpec defines the container image repository and tag
 type ImageSpec struct {
 	Repository string `json:"repository,omitempty"`
-	Tag        string `json:"tag,omitempty"`
+	Tag string `json:"tag,omitempty"`
 }
 
 // TlsSpec defines the TLS configuration
 type TlsSpec struct {
-	Enabled            bool   `json:"enabled,omitempty"`
-	Port               int32  `json:"port,omitempty"`
-	Host               string `json:"host,omitempty"`
-	KeystorePassword   string `json:"keystorePassword,omitempty"`
+	Enabled bool   `json:"enabled,omitempty"`
+	Port int32 `json:"port,omitempty"`
+	Host string `json:"host,omitempty"`
+	KeystorePassword string `json:"keystorePassword,omitempty"`
 	TruststorePassword string `json:"truststorePassword,omitempty"`
-	AdminIdentity      string `json:"adminIdentity,omitempty"`
+	AdminIdentity string `json:"adminIdentity,omitempty"`
 }
 
 // KeycloakSpec defines the OIDC settings for Keycloak
 type KeycloakSpec struct {
-	DiscoveryUrl         string `json:"discoveryUrl,omitempty"`
-	ClientId             string `json:"clientId,omitempty"`
+	// +kubebuilder:default:=false
+	// Enabled indicates whether Keycloak OIDC authentication is enabled.
+	Enabled bool `json:"enabled,omitempty"`
+
+	// ExternalURL is the publicly accessible root URL for the NiFi Registry (e.g., https://registry.k8c.ru).
+	ExternalURL string `json:"externalUrl,omitempty"`
+
+	// Realm is the name of the Keycloak realm to connect to (e.g., nifier).
+	Realm string `json:"realm,omitempty"`
+
+	// DiscoveryUrl is the base URL for the OIDC provider's discovery endpoint.
+	DiscoveryUrl string `json:"discoveryUrl,omitempty"`
+	
+	ClientId string `json:"clientId,omitempty"`
+	
+	// ClaimIdentifyingUser is the claim in the ID token used to identify the user (e.g., preferred_username).
+	// +kubebuilder:default:=preferred_username
 	ClaimIdentifyingUser string `json:"claimIdentifyingUser,omitempty"`
-	ClientSecretName     string `json:"clientSecretName,omitempty"`
+	
+	// ClientSecretName is the name of the Kubernetes Secret containing the client secret.
+	ClientSecretName string `json:"clientSecretName,omitempty"`
+
+	// InitialAdminIdentity is the username from Keycloak that will be granted initial admin privileges (e.g., root).
+	InitialAdminIdentity string `json:"initialAdminIdentity,omitempty"`
 }
 
 // DatabaseSpec defines the external database connection settings
 type DatabaseSpec struct {
-	Enabled     bool   `json:"enabled,omitempty"`
-	Url         string `json:"url,omitempty"`
+	Enabled bool   `json:"enabled,omitempty"`
+	Url string `json:"url,omitempty"`
 	DriverClass string `json:"driverClass,omitempty"`
-	Username    string `json:"username,omitempty"`
+	Username string `json:"username,omitempty"`
 	// VVVV ДОБАВЛЕНО ЭТО ПОЛЕ VVVV
 	// +kubebuilder:validation:Required
 	Password string `json:"password,omitempty"`
@@ -69,13 +90,13 @@ type DatabaseSpec struct {
 
 // PostgreSQLSpec defines the settings for the managed PostgreSQL instance
 type PostgreSQLSpec struct {
-	Enabled      bool      `json:"enabled,omitempty"`
-	Image        ImageSpec `json:"image,omitempty"`
-	Database     string    `json:"database,omitempty"`
-	Username     string    `json:"username,omitempty"`
-	Password     string    `json:"password,omitempty"`
-	Size         string    `json:"size,omitempty"`
-	StorageClass string    `json:"storageClass,omitempty"`
+	Enabled bool   `json:"enabled,omitempty"`
+	Image ImageSpec `json:"image,omitempty"`
+	Database string `json:"database,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	Size string `json:"size,omitempty"`
+	StorageClass string `json:"storageClass,omitempty"`
 }
 
 // NifiRegistrySpec defines the desired state of NifiRegistry
@@ -125,10 +146,10 @@ type NifiRegistryStatus struct {
 
 // NifiRegistry is the Schema for the nifiregistries API
 type NifiRegistry struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   NifiRegistrySpec   `json:"spec,omitempty"`
+	Spec NifiRegistrySpec `json:"spec,omitempty"`
 	Status NifiRegistryStatus `json:"status,omitempty"`
 }
 
@@ -138,7 +159,7 @@ type NifiRegistry struct {
 type NifiRegistryList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []NifiRegistry `json:"items"`
+	Items []NifiRegistry `json:"items"`
 }
 
 func init() {
