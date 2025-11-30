@@ -26,25 +26,25 @@ type LibStorageSpec struct {
 
 // FlowStorageSpec определяет настройки для хранилища NiFi Registry
 type FlowStorageSpec struct {
-	Enabled bool   `json:"enabled,omitempty"`
-	Size string `json:"size,omitempty"`
+	Enabled      bool   `json:"enabled,omitempty"`
+	Size         string `json:"size,omitempty"`
 	StorageClass string `json:"storageClass,omitempty"`
 }
 
 // ImageSpec defines the container image repository and tag
 type ImageSpec struct {
 	Repository string `json:"repository,omitempty"`
-	Tag string `json:"tag,omitempty"`
+	Tag        string `json:"tag,omitempty"`
 }
 
 // TlsSpec defines the TLS configuration
 type TlsSpec struct {
-	Enabled bool   `json:"enabled,omitempty"`
-	Port int32 `json:"port,omitempty"`
-	Host string `json:"host,omitempty"`
-	KeystorePassword string `json:"keystorePassword,omitempty"`
+	Enabled            bool   `json:"enabled,omitempty"`
+	Port               int32  `json:"port,omitempty"`
+	Host               string `json:"host,omitempty"`
+	KeystorePassword   string `json:"keystorePassword,omitempty"`
 	TruststorePassword string `json:"truststorePassword,omitempty"`
-	AdminIdentity string `json:"adminIdentity,omitempty"`
+	AdminIdentity      string `json:"adminIdentity,omitempty"`
 }
 
 // KeycloakSpec defines the OIDC settings for Keycloak
@@ -61,13 +61,13 @@ type KeycloakSpec struct {
 
 	// DiscoveryUrl is the base URL for the OIDC provider's discovery endpoint.
 	DiscoveryUrl string `json:"discoveryUrl,omitempty"`
-	
+
 	ClientId string `json:"clientId,omitempty"`
-	
+
 	// ClaimIdentifyingUser is the claim in the ID token used to identify the user (e.g., preferred_username).
 	// +kubebuilder:default:=preferred_username
 	ClaimIdentifyingUser string `json:"claimIdentifyingUser,omitempty"`
-	
+
 	// ClientSecretName is the name of the Kubernetes Secret containing the client secret.
 	ClientSecretName string `json:"clientSecretName,omitempty"`
 
@@ -77,10 +77,10 @@ type KeycloakSpec struct {
 
 // DatabaseSpec defines the external database connection settings
 type DatabaseSpec struct {
-	Enabled bool   `json:"enabled,omitempty"`
-	Url string `json:"url,omitempty"`
+	Enabled     bool   `json:"enabled,omitempty"`
+	Url         string `json:"url,omitempty"`
 	DriverClass string `json:"driverClass,omitempty"`
-	Username string `json:"username,omitempty"`
+	Username    string `json:"username,omitempty"`
 	// VVVV ДОБАВЛЕНО ЭТО ПОЛЕ VVVV
 	// +kubebuilder:validation:Required
 	Password string `json:"password,omitempty"`
@@ -90,13 +90,13 @@ type DatabaseSpec struct {
 
 // PostgreSQLSpec defines the settings for the managed PostgreSQL instance
 type PostgreSQLSpec struct {
-	Enabled bool   `json:"enabled,omitempty"`
-	Image ImageSpec `json:"image,omitempty"`
-	Database string `json:"database,omitempty"`
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
-	Size string `json:"size,omitempty"`
-	StorageClass string `json:"storageClass,omitempty"`
+	Enabled      bool      `json:"enabled,omitempty"`
+	Image        ImageSpec `json:"image,omitempty"`
+	Database     string    `json:"database,omitempty"`
+	Username     string    `json:"username,omitempty"`
+	Password     string    `json:"password,omitempty"`
+	Size         string    `json:"size,omitempty"`
+	StorageClass string    `json:"storageClass,omitempty"`
 }
 
 // NifiRegistrySpec defines the desired state of NifiRegistry
@@ -146,10 +146,10 @@ type NifiRegistryStatus struct {
 
 // NifiRegistry is the Schema for the nifiregistries API
 type NifiRegistry struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec NifiRegistrySpec `json:"spec,omitempty"`
+	Spec   NifiRegistrySpec   `json:"spec,omitempty"`
 	Status NifiRegistryStatus `json:"status,omitempty"`
 }
 
@@ -159,7 +159,7 @@ type NifiRegistry struct {
 type NifiRegistryList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items []NifiRegistry `json:"items"`
+	Items           []NifiRegistry `json:"items"`
 }
 
 func init() {

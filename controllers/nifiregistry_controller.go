@@ -1,6 +1,7 @@
 // Filename: controllers/nifiregistry_controller.go
-// Changes: Added reconcileConfigMap method and its call in Reconcile to ensure the ConfigMap (providers.xml) is created before the Registry Deployment.
-// This resolves the 'unused' error for the configMapForNifiRegistry helper function.
+// Changes: Integrated Keycloak ConfigMap creation logic into Reconcile.
+//          Updated reconcileConfigMap to handle all three ConfigMaps (providers, identity-providers, authorizers)
+//          and use r.Log as defined in the Reconciler struct.
 
 package controllers
 
@@ -36,6 +37,7 @@ type NifiRegistryReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -58,13 +60,13 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// ========================================================================================
 
 	if nifiRegistry.Spec.PostgreSQL.Enabled {
-		// A. Создание PVC для PostgreSQL
+		// A. Создание PVC для PostgreSQL (логика опущена)
 		pvcPostgres := pvcForPostgreSQL(nifiRegistry)
 		if err := r.ensurePVC(ctx, log, nifiRegistry, pvcPostgres); err != nil {
 			return ctrl.Result{}, err
 		}
 
-		// B. Создание Service для PostgreSQL
+		// B. Создание Service для PostgreSQL (логика опущена)
 		svcPostgres := serviceForPostgreSQL(nifiRegistry)
 		if err := controllerutil.SetControllerReference(nifiRegistry, svcPostgres, r.Scheme); err != nil {
 			log.Error(err, "Failed to set controller reference for PostgreSQL Service")
@@ -84,7 +86,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, err
 		}
 
-		// C. Создание Deployment для PostgreSQL
+		// C. Создание Deployment для PostgreSQL (логика опущена)
 		depPostgres := deploymentForPostgreSQL(nifiRegistry)
 		if err := controllerutil.SetControllerReference(nifiRegistry, depPostgres, r.Scheme); err != nil {
 			log.Error(err, "Failed to set controller reference for PostgreSQL Deployment")
@@ -118,7 +120,6 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// B. Создание PVC для Lib Storage (если включено ИЛИ нужна БД)
-	// Lib Storage требуется для JDBC драйвера, если используется внешняя БД.
 	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		pvcLib := pvcForLibStorage(nifiRegistry)
 		if err := r.ensurePVC(ctx, log, nifiRegistry, pvcLib); err != nil {
@@ -127,18 +128,35 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// ========================================================================================
-	// 3. Управление ConfigMap (providers.xml)
+	// 3. Управление ConfigMap
 	// ========================================================================================
-	// Вызов reconcileConfigMap для создания ConfigMap, чтобы устранить ошибку 'unused'
-	if err := r.reconcileConfigMap(ctx, log, nifiRegistry); err != nil {
+
+	// A. ConfigMap для providers.xml (СУЩЕСТВУЮЩАЯ ЛОГИКА)
+	configMapRegistry := configMapForNifiRegistry(nifiRegistry, r.Scheme)
+	if err := r.reconcileConfigMap(ctx, log, nifiRegistry, configMapRegistry, "Providers ConfigMap"); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// B. ConfigMaps для Keycloak (ЕСЛИ ВКЛЮЧЕН)
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// ConfigMap для identity-providers.xml (Аутентификация OIDC)
+		configMapIdentity := configMapIdentityProvidersForNifiRegistry(nifiRegistry, r.Scheme)
+		if err := r.reconcileConfigMap(ctx, log, nifiRegistry, configMapIdentity, "Identity Providers ConfigMap"); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// ConfigMap для authorizers.xml (Авторизация)
+		configMapAuthorizers := configMapAuthorizersForNifiRegistry(nifiRegistry, r.Scheme)
+		if err := r.reconcileConfigMap(ctx, log, nifiRegistry, configMapAuthorizers, "Authorizers ConfigMap"); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// ========================================================================================
 	// 4. Управление NiFi Registry
 	// ========================================================================================
 
-	// A. Создание Service для NiFi Registry
+	// A. Создание Service для NiFi Registry (логика опущена)
 	svcRegistry := serviceForNifiRegistry(nifiRegistry, r.Scheme)
 	if err := controllerutil.SetControllerReference(nifiRegistry, svcRegistry, r.Scheme); err != nil {
 		log.Error(err, "Failed to set controller reference for Registry Service")
@@ -158,7 +176,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// B. Создание Deployment для NiFi Registry
+	// B. Создание Deployment для NiFi Registry (логика опущена)
 	depRegistry := deploymentForNifiRegistry(nifiRegistry)
 	if err := controllerutil.SetControllerReference(nifiRegistry, depRegistry, r.Scheme); err != nil {
 		log.Error(err, "Failed to set controller reference for Registry Deployment")
@@ -178,42 +196,38 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// ========================================================================================
-	// Вспомогательная функция ensurePVC (оставлена в контроллере)
-	// ========================================================================================
 	return ctrl.Result{}, nil
 }
 
 // reconcileConfigMap проверяет существование ConfigMap и создает его, если он отсутствует.
-func (r *NifiRegistryReconciler) reconcileConfigMap(ctx context.Context, log logr.Logger, nifiRegistry *registryv1.NifiRegistry) error {
-	configMapName := fmt.Sprintf("%s-config", nifiRegistry.Name)
+// Теперь принимает желаемый ConfigMap и имя для логирования.
+func (r *NifiRegistryReconciler) reconcileConfigMap(ctx context.Context, log logr.Logger, nifiRegistry *registryv1.NifiRegistry, desiredCm *corev1.ConfigMap, logName string) error {
 	foundCM := &corev1.ConfigMap{}
 
 	// 1. Попытка получить ConfigMap
-	err := r.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: nifiRegistry.Namespace}, foundCM)
+	err := r.Get(ctx, types.NamespacedName{Name: desiredCm.Name, Namespace: nifiRegistry.Namespace}, foundCM)
 
 	if err != nil && errors.IsNotFound(err) {
 		// 2. Если не найден, СОЗДАЕМ его
-		newConfigMap := configMapForNifiRegistry(nifiRegistry, r.Scheme) // ИСПОЛЬЗУЕТ ФУНКЦИЮ configMapForNifiRegistry
 
-		if err := controllerutil.SetControllerReference(nifiRegistry, newConfigMap, r.Scheme); err != nil {
-			log.Error(err, "Failed to set controller reference for ConfigMap")
+		if err := controllerutil.SetControllerReference(nifiRegistry, desiredCm, r.Scheme); err != nil {
+			log.Error(err, fmt.Sprintf("Failed to set controller reference for %s", logName))
 			return err
 		}
 
-		log.Info("Creating ConfigMap (providers.xml)", "Name", configMapName)
-		err = r.Create(ctx, newConfigMap)
+		log.Info("Creating", "ConfigMap", logName, "Name", desiredCm.Name)
+		err = r.Client.Create(ctx, desiredCm)
 		if err != nil {
-			log.Error(err, "Failed to create ConfigMap")
+			log.Error(err, fmt.Sprintf("Failed to create %s", logName))
 			return err
 		}
 	} else if err != nil {
 		// Ошибка при получении ConfigMap
-		log.Error(err, "Failed to get ConfigMap")
+		log.Error(err, fmt.Sprintf("Failed to get existing %s", logName))
 		return err
 	}
 
-	// В реальном операторе здесь должна быть логика обновления ConfigMap.
+	// TODO: Здесь должна быть логика обновления ConfigMap, если его содержимое изменилось.
 
 	return nil
 }
