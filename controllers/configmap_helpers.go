@@ -1,6 +1,6 @@
 // Filename: controllers/configmap_helpers.go
-// Changes: Added functions configMapIdentityProvidersForNifiRegistry and configMapAuthorizersForNifiRegistry
-// to support Keycloak OIDC configuration (Identity Providers and Initial Admin Identity).
+// Changes: Updated configMapIdentityProvidersForNifiRegistry to use ENV variable for Client Secret 
+//          ($NIFI_REGISTRY_OIDC_CLIENT_SECRET).
 
 package controllers
 
@@ -14,7 +14,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// Константа, содержащая ИСПРАВЛЕННОЕ содержимое providers.xml (Оставлено по запросу пользователя)
+// Константа, содержащая ИСПРАВЛЕННОЕ содержимое providers.xml
 const registryProvidersXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <providers>
 	<flowPersistenceProvider>
@@ -27,7 +27,7 @@ const registryProvidersXml = `<?xml version="1.0" encoding="UTF-8" standalone="y
 	</extensionBundlePersistenceProvider>
 </providers>`
 
-// configMapForNifiRegistry генерирует ConfigMap для providers.xml (Оставлено по запросу пользователя)
+// configMapForNifiRegistry генерирует ConfigMap для providers.xml
 func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
 	
@@ -57,20 +57,15 @@ func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *run
 func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
 
-	// Изменено имя ConfigMap для соответствия логике монтирования в deployment_helpers.go
+	// Имя ConfigMap
 	configMapName := fmt.Sprintf("%s-identity-providers-cm", nifiRegistry.Name)
 
 	// Константа для пути обратного вызова OIDC
 	const oidcCallbackPath = "/nifi-registry-api/access/oidc/callback"
 
 	// 1. Формируем Discovery URL и Redirect URL
-	// ПРИМЕЧАНИЕ: Discovery URL должен указывать на базовый URL Keycloak без /realms/{realm_name},
-	// так как OidcIdentityProvider сам добавляет нужные суффиксы. 
-	// ИЛИ: Если используется OpenID Provider Discovery URL, он должен указывать на .well-known
-	// NIFI REGISTRY System Administrator’s Guide (2.1.0) рекомендует использовать базовый URL Keycloak 
-	// (без /realms/{realm_name} и без .well-known/openid-configuration).
-	// Однако, для Keycloak, URL должен быть: https://keycloak.example.com/realms/nifi
-	discoveryURL := fmt.Sprintf("%s/realms/%s", nifiRegistry.Spec.Keycloak.ExternalURL, nifiRegistry.Spec.Keycloak.Realm)
+	// Используем DiscoveryUrl из CRD, чтобы ничего не удалять.
+	discoveryURL := nifiRegistry.Spec.Keycloak.DiscoveryUrl 
 	redirectURL := fmt.Sprintf("%s%s", nifiRegistry.Spec.Keycloak.ExternalURL, oidcCallbackPath)
 
 	// 2. Генерируем содержимое XML
@@ -81,15 +76,14 @@ func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegi
 		<class>org.apache.nifi.registry.security.identity.OidcIdentityProvider</class>
 		<property name="OIDC Provider Discovery URL">%s</property>
 		<property name="Client ID">%s</property>
-		<property name="Client Secret">REPLACE_ME_WITH_SECRET</property>
-		<property name="Redirect URL">%s</property>
+		<property name="Client Secret">${NIFI_REGISTRY_OIDC_CLIENT_SECRET}</property> <property name="Redirect URL">%s</property>
 		<property name="Claim Identifying User">%s</property>
 		<property name="Claim Identifying User Group"></property>
 		<property name="Callback Path">%s</property>
 		<property name="Request Scope">openid email profile</property>
 	</provider>
 </identityProviders>`,
-		discoveryURL,
+		discoveryURL, // Используем DiscoveryUrl из CRD, как вы просили не удалять
 		nifiRegistry.Spec.Keycloak.ClientId,
 		redirectURL,
 		nifiRegistry.Spec.Keycloak.ClaimIdentifyingUser,
@@ -115,15 +109,13 @@ func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegi
 func configMapAuthorizersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
 	
-	// Изменено имя ConfigMap для соответствия логике монтирования в deployment_helpers.go
+	// Имя ConfigMap
 	configMapName := fmt.Sprintf("%s-authorizers-cm", nifiRegistry.Name)
 
 	// Получаем имя первого администратора из CRD
 	initialAdminIdentity := nifiRegistry.Spec.Keycloak.InitialAdminIdentity
 
 	// 1. Генерируем содержимое XML
-	// ИСПРАВЛЕНИЕ: Добавлен missing property 'Access Policy Provider Implementation' в Access Policy Provider.
-	// ИСПРАВЛЕНИЕ: Исправлена опечатка в теге Access Policy Provider Implementation.
 	authorizersXml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <authorizers>
 	<authorizer>
