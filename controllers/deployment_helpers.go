@@ -1,3 +1,5 @@
+// controllers/deployment_helpers.go
+
 package controllers
 
 import (
@@ -23,35 +25,61 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	// Имена томов
 	flowStorageVolumeName := nifiRegistry.Name + "-flow"
 	libStorageVolumeName := nifiRegistry.Name + "-lib"
+	confVolumeName := "nifi-registry-conf" // Имя тома для конфигурации
 	
     // ПУТЬ ДЛЯ ВНЕШНИХ ДРАЙВЕРОВ
     externalLibMountPath := "/opt/nifi-registry/external_lib"
 
 
-	// Определяем, нужен ли InitContainer для копирования JDBC драйвера.
+	// Определяем InitContainers
 	var initContainers []corev1.Container
 
-	// InitContainer нужен, только если используется внешняя БД (PostgreSQL)
+	// InitContainers нужны, только если используется внешняя БД (PostgreSQL)
 	if nifiRegistry.Spec.Database.Enabled {
 		initContainers = []corev1.Container{
+			// Контейнер 0: Копирует конфигурацию из образа в EmptyDir (делает ее доступной для записи)
 			{
-				Name:  "copy-postgres-driver",
+				Name:  "copy-conf",
+				Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag, // Используем основной образ
+				Command: []string{
+					"sh",
+					"-c",
+					"cp -R /opt/nifi-registry/nifi-registry-current/conf/. /mnt/conf", // Копируем в /mnt/conf
+				},
+				VolumeMounts: []corev1.VolumeMount{
+					{
+						Name:      confVolumeName,
+						MountPath: "/mnt/conf",
+					},
+				},
+			},
+			// Контейнер 1: Скачивает драйвер и переименовывает файл Derby (отключает встроенную БД)
+			{
+				Name:  "setup-db-driver",
 				Image: "curlimages/curl:latest",
 				Command: []string{
 					"sh",
 					"-c",
-					// Копируем драйвер в новый, неперекрывающий каталог: /external_lib
-					"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o " + externalLibMountPath + "/postgresql-jdbc.jar",
+					// Скачиваем драйвер
+					"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o " + externalLibMountPath + "/postgresql-jdbc.jar && " + 
+					// Отключаем Derby, переименовывая ее файл конфигурации
+					"mv /opt/nifi-registry/nifi-registry-current/conf/providers/flow-persistence/derby-flow-persistence-provider.xml /opt/nifi-registry/nifi-registry-current/conf/providers/flow-persistence/derby-flow-persistence-provider.xml.bak", 
 				},
 				VolumeMounts: []corev1.VolumeMount{
 					{
 						Name:      libStorageVolumeName,
-						MountPath: externalLibMountPath, // <--- ИЗМЕНЕН ПУТЬ МОНТИРОВАНИЯ
+						MountPath: externalLibMountPath, // Монтируем PVC Lib Storage
+					},
+					{
+						Name:      confVolumeName,
+						MountPath: "/opt/nifi-registry/nifi-registry-current/conf", // Доступ к модифицируемой конфигурации
 					},
 				},
 			},
 		}
 	}
+    // else { initContainers остается пустым (var initContainers []corev1.Container) }
+
 
 	// Переменные окружения NiFi Registry
 	envVars := []corev1.EnvVar{
@@ -97,7 +125,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			},
 			{
 				Name:  "NIFI_REGISTRY_DB_DRIVER_LIB_DIR",
-				Value: externalLibMountPath, // <--- ИСПРАВЛЕНО: Указываем новый путь для драйвера
+				Value: externalLibMountPath, // Указываем новый путь для драйвера
 			},
 		}
 		envVars = append(envVars, dbEnv...)
@@ -105,22 +133,34 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 
 	// VolumeMounts
 	volumeMounts := []corev1.VolumeMount{}
+	
+	// 1. Монтирование flow storage
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      flowStorageVolumeName,
 			MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
 		})
 	}
-	// LibStorage нужен, если включен FlowStorage ИЛИ Database.
+	
+	// 2. Монтирование lib storage (для драйвера PostgreSQL, если БД включена)
 	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      libStorageVolumeName,
-			MountPath: externalLibMountPath, // <--- ИЗМЕНЕН ПУТЬ МОНТИРОВАНИЯ
+			MountPath: externalLibMountPath, // Монтируем внешний Lib в /external_lib
 		})
 	}
 
+	// 3. Монтирование тома /conf (для основного контейнера) - всегда нужен EmptyDir, чтобы InitContainers могли работать
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		Name:      confVolumeName, 
+		MountPath: "/opt/nifi-registry/nifi-registry-current/conf",
+	})
+
+
 	// Volumes
 	volumes := []corev1.Volume{}
+	
+	// 1. Том для Flow Storage
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		volumes = append(volumes, corev1.Volume{
 			Name: flowStorageVolumeName,
@@ -131,6 +171,8 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			},
 		})
 	}
+	
+	// 2. Том для Lib Storage
 	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		volumes = append(volumes, corev1.Volume{
 			Name: libStorageVolumeName,
@@ -141,6 +183,15 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			},
 		})
 	}
+	
+	// 3. Том EmptyDir для конфигурации (для доступа на запись InitContainers)
+	volumes = append(volumes, corev1.Volume{
+		Name: confVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	})
+
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
