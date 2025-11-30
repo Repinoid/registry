@@ -1,7 +1,6 @@
 // Filename: controllers/nifiregistry_controller.go
-// Changes: Integrated Keycloak ConfigMap creation logic into Reconcile.
-//          Updated reconcileConfigMap to handle all three ConfigMaps (providers, identity-providers, authorizers)
-//          and use r.Log as defined in the Reconciler struct.
+// Changes: Integrated TLS Secret and Keycloak Client Secret creation logic into Reconcile.
+// 			Added helper function ensureSecret to handle Secret creation and ownership.
 
 package controllers
 
@@ -37,6 +36,7 @@ type NifiRegistryReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete // <-- ДОБАВЛЕНО ДЛЯ SECRETS
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -56,7 +56,30 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// ========================================================================================
-	// 1. Управление PostgreSQL (если включено)
+	// 1. Управление Secret (TLS и Keycloak)
+	// ========================================================================================
+
+	// A. Secret для TLS Keystore/Truststore (если TLS включен)
+	if nifiRegistry.Spec.Tls.Enabled {
+		tlsSecret := tlsSecretForNifiRegistry(nifiRegistry, r.Scheme)
+		if err := r.ensureSecret(ctx, log, nifiRegistry, tlsSecret, "TLS Keystore/Truststore Secret"); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// B. Secret для Keycloak Client Secret (если Keycloak включен)
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// ВАЖНО: Мы создаем Secret с именем, указанным в CRD (ClientSecretName).
+		// В Secret Helpers он создается с заглушкой, предполагая, что пользователь
+		// может захотеть создать его вручную или через другой оператор.
+		keycloakSecret := keycloakSecretForNifiRegistry(nifiRegistry, r.Scheme)
+		if err := r.ensureSecret(ctx, log, nifiRegistry, keycloakSecret, "Keycloak Client Secret"); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// ========================================================================================
+	// 2. Управление PostgreSQL (если включено)
 	// ========================================================================================
 
 	if nifiRegistry.Spec.PostgreSQL.Enabled {
@@ -108,7 +131,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// ========================================================================================
-	// 2. Управление хранилищем NiFi Registry (PVC)
+	// 3. Управление хранилищем NiFi Registry (PVC)
 	// ========================================================================================
 
 	// A. Создание PVC для Flow Storage (если включено)
@@ -128,10 +151,10 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// ========================================================================================
-	// 3. Управление ConfigMap
+	// 4. Управление ConfigMap
 	// ========================================================================================
 
-	// A. ConfigMap для providers.xml (СУЩЕСТВУЮЩАЯ ЛОГИКА)
+	// A. ConfigMap для providers.xml
 	configMapRegistry := configMapForNifiRegistry(nifiRegistry, r.Scheme)
 	if err := r.reconcileConfigMap(ctx, log, nifiRegistry, configMapRegistry, "Providers ConfigMap"); err != nil {
 		return ctrl.Result{}, err
@@ -153,7 +176,7 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// ========================================================================================
-	// 4. Управление NiFi Registry
+	// 5. Управление NiFi Registry
 	// ========================================================================================
 
 	// A. Создание Service для NiFi Registry (логика опущена)
@@ -197,6 +220,42 @@ func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// ensureSecret проверяет существование Secret и создает его, если он отсутствует.
+func (r *NifiRegistryReconciler) ensureSecret(ctx context.Context, log logr.Logger, nifiRegistry *registryv1.NifiRegistry, desiredSecret *corev1.Secret, logName string) error {
+	foundSecret := &corev1.Secret{}
+
+	// 1. Попытка получить Secret
+	err := r.Get(ctx, types.NamespacedName{Name: desiredSecret.Name, Namespace: nifiRegistry.Namespace}, foundSecret)
+
+	if err != nil && errors.IsNotFound(err) {
+		// 2. Если не найден, СОЗДАЕМ его
+
+		// На Keycloak Secret (Client Secret) мы не устанавливаем Owner Reference,
+		// если он не должен быть удален вместе с CRD. Однако, в данном контексте
+		// мы ставим Owner Reference на оба Secret'а для простоты.
+		// В реальном сценарии Keycloak Secret часто управляется вне оператора.
+		if err := controllerutil.SetControllerReference(nifiRegistry, desiredSecret, r.Scheme); err != nil {
+			log.Error(err, fmt.Sprintf("Failed to set controller reference for %s", logName))
+			return err
+		}
+
+		log.Info("Creating", "Secret", logName, "Name", desiredSecret.Name)
+		err = r.Client.Create(ctx, desiredSecret)
+		if err != nil {
+			log.Error(err, fmt.Sprintf("Failed to create %s", logName))
+			return err
+		}
+	} else if err != nil {
+		// Ошибка при получении Secret
+		log.Error(err, fmt.Sprintf("Failed to get existing %s", logName))
+		return err
+	}
+
+	// TODO: Здесь должна быть логика обновления Secret, если его содержимое изменилось.
+
+	return nil
 }
 
 // reconcileConfigMap проверяет существование ConfigMap и создает его, если он отсутствует.
@@ -261,6 +320,7 @@ func (r *NifiRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
-		Owns(&corev1.ConfigMap{}). // Добавлено владение ConfigMap
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}). // <-- ДОБАВЛЕНО ВЛАДЕНИЕ SECRET
 		Complete(r)
 }
