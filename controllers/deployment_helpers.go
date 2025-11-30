@@ -1,4 +1,8 @@
-// controllers/deployment_helpers.go
+// File: controllers/deployment_helper.go
+// Changes:
+// 1. Добавлена явная установка системных свойств Java (-Dspring.datasource.driver-class-name и -Dspring.datasource.url)
+//    через NIFI_REGISTRY_JAVA_OPTS. Это должно принудить Flyway использовать драйвер PostgreSQL,
+//    переопределяя встроенный H2.
 
 package controllers
 
@@ -26,10 +30,9 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	flowStorageVolumeName := nifiRegistry.Name + "-flow"
 	libStorageVolumeName := nifiRegistry.Name + "-lib"
 	confVolumeName := "nifi-registry-conf" // Имя тома для конфигурации
-	
-    // ПУТЬ ДЛЯ ВНЕШНИХ ДРАЙВЕРОВ
-    externalLibMountPath := "/opt/nifi-registry/external_lib"
 
+	// ПУТЬ ДЛЯ ВНЕШНИХ ДРАЙВЕРОВ
+	externalLibMountPath := "/opt/nifi-registry/external_lib"
 
 	// Определяем InitContainers
 	var initContainers []corev1.Container
@@ -44,7 +47,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 				Command: []string{
 					"sh",
 					"-c",
-					"cp -R /opt/nifi-registry/nifi-registry-current/conf/. /mnt/conf", // Копируем в /mnt/conf
+					"cp -R /opt/nifi-registry/nifi-registry-current/conf/. /mnt/conf",
 				},
 				VolumeMounts: []corev1.VolumeMount{
 					{
@@ -53,33 +56,25 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 					},
 				},
 			},
-			// Контейнер 1: Скачивает драйвер и переименовывает файл Derby (отключает встроенную БД)
+			// Контейнер 1: Скачивает драйвер PostgreSQL
 			{
-				Name:  "setup-db-driver",
-				Image: "curlimages/curl:latest",
+				Name:  "download-db-driver",
+				Image: "curlimages/curl:latest", // Используем легкий образ с curl для скачивания
 				Command: []string{
 					"sh",
 					"-c",
-					// Скачиваем драйвер
-					"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o " + externalLibMountPath + "/postgresql-jdbc.jar && " + 
-					// Отключаем Derby, переименовывая ее файл конфигурации
-					"mv /opt/nifi-registry/nifi-registry-current/conf/providers/flow-persistence/derby-flow-persistence-provider.xml /opt/nifi-registry/nifi-registry-current/conf/providers/flow-persistence/derby-flow-persistence-provider.xml.bak", 
+					// Скачиваем драйвер в смонтированный PVC
+					"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o " + externalLibMountPath + "/postgresql-jdbc.jar",
 				},
 				VolumeMounts: []corev1.VolumeMount{
 					{
 						Name:      libStorageVolumeName,
 						MountPath: externalLibMountPath, // Монтируем PVC Lib Storage
 					},
-					{
-						Name:      confVolumeName,
-						MountPath: "/opt/nifi-registry/nifi-registry-current/conf", // Доступ к модифицируемой конфигурации
-					},
 				},
 			},
 		}
 	}
-    // else { initContainers остается пустым (var initContainers []corev1.Container) }
-
 
 	// Переменные окружения NiFi Registry
 	envVars := []corev1.EnvVar{
@@ -95,6 +90,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 
 	// Если включена внешняя БД, добавляем все переменные окружения для подключения к БД
 	if nifiRegistry.Spec.Database.Enabled {
+		// Установка стандартных ENV (переопределяют nifi-registry.properties)
 		dbEnv := []corev1.EnvVar{
 			// Flow Persistence Provider Settings
 			{
@@ -125,15 +121,27 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			},
 			{
 				Name:  "NIFI_REGISTRY_DB_DRIVER_LIB_DIR",
-				Value: externalLibMountPath, // Указываем новый путь для драйвера
+				Value: externalLibMountPath, // Указываем путь для драйвера
 			},
 		}
 		envVars = append(envVars, dbEnv...)
+
+		// ДОБАВЛЕНИЕ NIFI_REGISTRY_JAVA_OPTS для принудительной установки драйвера в Flyway/Spring Boot
+		driverClassOpt := "-Dspring.datasource.driver-class-name=" + nifiRegistry.Spec.Database.DriverClass
+		dbUrlOpt := "-Dspring.datasource.url=" + nifiRegistry.Spec.Database.Url
+
+		javaOptsValue := driverClassOpt + " " + dbUrlOpt
+
+		javaOptsEnv := corev1.EnvVar{
+			Name:  "NIFI_REGISTRY_JAVA_OPTS",
+			Value: javaOptsValue,
+		}
+		envVars = append(envVars, javaOptsEnv)
 	}
 
 	// VolumeMounts
 	volumeMounts := []corev1.VolumeMount{}
-	
+
 	// 1. Монтирование flow storage
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -141,7 +149,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
 		})
 	}
-	
+
 	// 2. Монтирование lib storage (для драйвера PostgreSQL, если БД включена)
 	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -150,16 +158,15 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		})
 	}
 
-	// 3. Монтирование тома /conf (для основного контейнера) - всегда нужен EmptyDir, чтобы InitContainers могли работать
+	// 3. Монтирование тома /conf (для основного контейнера) - всегда нужен EmptyDir
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		Name:      confVolumeName, 
-		MountPath: "/opt/nifi-registry/nifi-registry-current/conf",
+		Name:      confVolumeName,
+		MountPath: "/opt/nifi-registry/nifi-registry-current/conf", // ПРАВИЛЬНЫЙ ПУТЬ
 	})
-
 
 	// Volumes
 	volumes := []corev1.Volume{}
-	
+
 	// 1. Том для Flow Storage
 	if nifiRegistry.Spec.FlowStorage.Enabled {
 		volumes = append(volumes, corev1.Volume{
@@ -171,7 +178,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			},
 		})
 	}
-	
+
 	// 2. Том для Lib Storage
 	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		volumes = append(volumes, corev1.Volume{
@@ -183,7 +190,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			},
 		})
 	}
-	
+
 	// 3. Том EmptyDir для конфигурации (для доступа на запись InitContainers)
 	volumes = append(volumes, corev1.Volume{
 		Name: confVolumeName,
@@ -191,7 +198,6 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			EmptyDir: &corev1.EmptyDirVolumeSource{},
 		},
 	})
-
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
