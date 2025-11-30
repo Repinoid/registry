@@ -1,3 +1,12 @@
+
+
+for f in *; do
+    echo "// --- НАЧАЛО ФАЙЛА: $f ---"
+    cat "$f"
+    echo "// --- КОНЕЦ ФАЙЛА: $f ---"
+    echo ""
+done > combined_files.txt
+
 Стандартное расположение, куда NiFi Registry ищет JAR-файлы провайдеров:
 Правильный путь для NiFi Registry: /opt/nifi-registry/nifi-registry-current/work/jetty/nifi-registry-web-api-1.24.0.war/WEB-INF/lib/
 

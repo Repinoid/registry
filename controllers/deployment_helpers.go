@@ -1,8 +1,11 @@
-// File: controllers/deployment_helper.go
-// Changes:
-// 1. Добавлена явная установка системных свойств Java (-Dspring.datasource.driver-class-name и -Dspring.datasource.url)
-//    через NIFI_REGISTRY_JAVA_OPTS. Это должно принудить Flyway использовать драйвер PostgreSQL,
-//    переопределяя встроенный H2.
+// --- START OF FILE: deployment_helpers.go ---
+//
+// Изменения:
+// 1. В NIFI_REGISTRY_JAVA_OPTS добавлены свойства Spring:
+//    -Dspring.datasource.username и -Dspring.datasource.password.
+//    Это гарантирует, что Flyway (мигратор БД) получает полные учетные данные
+//    через Java System Properties, полностью обходя read-only nifi-registry.properties.
+//
 
 package controllers
 
@@ -127,10 +130,16 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		envVars = append(envVars, dbEnv...)
 
 		// ДОБАВЛЕНИЕ NIFI_REGISTRY_JAVA_OPTS для принудительной установки драйвера в Flyway/Spring Boot
-		driverClassOpt := "-Dspring.datasource.driver-class-name=" + nifiRegistry.Spec.Database.DriverClass
-		dbUrlOpt := "-Dspring.datasource.url=" + nifiRegistry.Spec.Database.Url
+		dbUrl := nifiRegistry.Spec.Database.Url
+		driverClass := nifiRegistry.Spec.Database.DriverClass
+		dbUsername := nifiRegistry.Spec.Database.Username
+		dbPassword := nifiRegistry.Spec.Database.Password
 
-		javaOptsValue := driverClassOpt + " " + dbUrlOpt
+		// Новые опции с включением логина и пароля
+		javaOptsValue := "-Dspring.datasource.driver-class-name=" + driverClass +
+			" -Dspring.datasource.url=" + dbUrl +
+			" -Dspring.datasource.username=" + dbUsername + // <-- ДОБАВЛЕНО
+			" -Dspring.datasource.password=" + dbPassword // <-- ДОБАВЛЕНО
 
 		javaOptsEnv := corev1.EnvVar{
 			Name:  "NIFI_REGISTRY_JAVA_OPTS",
@@ -251,3 +260,5 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 
 	return dep
 }
+
+// --- END OF FILE: deployment_helpers.go ---
