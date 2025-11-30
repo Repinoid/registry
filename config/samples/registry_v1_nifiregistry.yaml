@@ -6,7 +6,7 @@ spec:
   # Size - количество реплик (изменено)
   size: 1
   
-  # Используем структуру ImageSpec (изменено)
+  # Используем структуру ImageSpec
   image:
     repository: apache/nifi-registry
     tag: 1.24.0
@@ -20,7 +20,7 @@ spec:
       cpu: "100m"
       memory: "512Mi"
 
-  # Tls (ОТКЛЮЧЕНО, чтобы соответствовать рабочей конфигурации)
+  # Tls (ОТКЛЮЧЕНО)
   tls:
     enabled: false
     port: 8443
@@ -40,13 +40,19 @@ spec:
   flowStorage:
     enabled: true
     size: 200Mi
-    storageClass: standard # Используем стандартный StorageClass
+    storageClass: local-path # <--- ИСПРАВЛЕНО: Для устранения ошибки Pending
 
-  # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL) (ОТКЛЮЧЕНО)
+  # Настройки Lib Storage (ДОБАВЛЕНО/АКТИВИРОВАНО для устранения ошибки PVC)
+  libStorage:
+    enabled: true # <--- ДОБАВЛЕНО/ИСПРАВЛЕНО: Гарантирует создание PVC -lib
+    size: 200Mi
+    storageClass: local-path # <--- ИСПРАВЛЕНО: Для устранения ошибки Pending
+
+  # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL)
   database:
-    enabled: false # Используем встроенную БД Derby
+    enabled: false # Используем встроенную БД Derby (как в оригинале)
     url: jdbc:postgresql://postgres:5432/nifiregistry 
     driverClass: org.postgresql.Driver
     username: nifiregistry
-    secretName: nifiregistry-db-secret
-    
+    # Мы добавили Password в types.go, но здесь он не нужен, так как enabled: false.
+    # secretName: nifiregistry-db-secret
