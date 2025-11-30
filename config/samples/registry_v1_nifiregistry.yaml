@@ -22,7 +22,7 @@ spec:
 
   # Tls (ОТКЛЮЧЕНО)
   tls:
-    enabled: false
+    enabled: true
     port: 8443
     host: nifiregistry-sample-svc.default.svc.cluster.local
     keystorePassword: changeit
