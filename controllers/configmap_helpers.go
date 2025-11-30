@@ -25,12 +25,14 @@ const registryProvidersXml = `<?xml version="1.0" encoding="UTF-8" standalone="y
 		<class>org.apache.nifi.registry.provider.extension.FileSystemBundlePersistenceProvider</class>
 		<property name="Extension Bundle Storage Directory">./extension_bundles</property>
 	</extensionBundlePersistenceProvider>
-	</providers>`
+</providers>`
 
-// configMapForNifiRegistry генерирует ConfigMap для NiFi Registry (Оставлено по запросу пользователя)
+// configMapForNifiRegistry генерирует ConfigMap для providers.xml (Оставлено по запросу пользователя)
 func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
-	configMapName := fmt.Sprintf("%s-config", nifiRegistry.Name)
+	
+	// Используем более точное имя ConfigMap для providers.xml
+	configMapName := fmt.Sprintf("%s-providers-cm", nifiRegistry.Name)
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -55,30 +57,37 @@ func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *run
 func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
 
-	// Используем имя CRD + "-identity-config" для нового ConfigMap
-	configMapName := fmt.Sprintf("%s-identity-config", nifiRegistry.Name)
+	// Изменено имя ConfigMap для соответствия логике монтирования в deployment_helpers.go
+	configMapName := fmt.Sprintf("%s-identity-providers-cm", nifiRegistry.Name)
 
 	// Константа для пути обратного вызова OIDC
 	const oidcCallbackPath = "/nifi-registry-api/access/oidc/callback"
 
 	// 1. Формируем Discovery URL и Redirect URL
-	// Пример: https://registry.k8c.ru/realms/nifier/.well-known/openid-configuration
+	// ПРИМЕЧАНИЕ: Discovery URL должен указывать на базовый URL Keycloak без /realms/{realm_name},
+	// так как OidcIdentityProvider сам добавляет нужные суффиксы. 
+	// ИЛИ: Если используется OpenID Provider Discovery URL, он должен указывать на .well-known
+	// NIFI REGISTRY System Administrator’s Guide (2.1.0) рекомендует использовать базовый URL Keycloak 
+	// (без /realms/{realm_name} и без .well-known/openid-configuration).
+	// Однако, для Keycloak, URL должен быть: https://keycloak.example.com/realms/nifi
 	discoveryURL := fmt.Sprintf("%s/realms/%s", nifiRegistry.Spec.Keycloak.ExternalURL, nifiRegistry.Spec.Keycloak.Realm)
 	redirectURL := fmt.Sprintf("%s%s", nifiRegistry.Spec.Keycloak.ExternalURL, oidcCallbackPath)
 
 	// 2. Генерируем содержимое XML
 	identityProvidersXml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <identityProviders>
-    <provider>
-        <id>oidc-keycloak-provider</id>
-        <class>org.apache.nifi.registry.security.identity.OidcIdentityProvider</class>
-        <property name="OIDC Provider Discovery URL">%s</property>
-        <property name="Client ID">%s</property>
-        <property name="Redirect URL">%s</property>
-        <property name="Claim Identifying User">%s</property>
-        <property name="Claim Identifying User Group"></property>
-        <property name="Callback Path">%s</property>
-    </provider>
+	<provider>
+		<id>oidc-keycloak-provider</id>
+		<class>org.apache.nifi.registry.security.identity.OidcIdentityProvider</class>
+		<property name="OIDC Provider Discovery URL">%s</property>
+		<property name="Client ID">%s</property>
+		<property name="Client Secret">REPLACE_ME_WITH_SECRET</property>
+		<property name="Redirect URL">%s</property>
+		<property name="Claim Identifying User">%s</property>
+		<property name="Claim Identifying User Group"></property>
+		<property name="Callback Path">%s</property>
+		<property name="Request Scope">openid email profile</property>
+	</provider>
 </identityProviders>`,
 		discoveryURL,
 		nifiRegistry.Spec.Keycloak.ClientId,
@@ -105,38 +114,41 @@ func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegi
 // configMapAuthorizersForNifiRegistry генерирует ConfigMap для authorizers.xml
 func configMapAuthorizersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
-	configMapName := fmt.Sprintf("%s-authorizers-config", nifiRegistry.Name)
+	
+	// Изменено имя ConfigMap для соответствия логике монтирования в deployment_helpers.go
+	configMapName := fmt.Sprintf("%s-authorizers-cm", nifiRegistry.Name)
 
 	// Получаем имя первого администратора из CRD
 	initialAdminIdentity := nifiRegistry.Spec.Keycloak.InitialAdminIdentity
 
 	// 1. Генерируем содержимое XML
+	// ИСПРАВЛЕНИЕ: Добавлен missing property 'Access Policy Provider Implementation' в Access Policy Provider.
+	// ИСПРАВЛЕНИЕ: Исправлена опечатка в теге Access Policy Provider Implementation.
 	authorizersXml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <authorizers>
-    <authorizer>
-        <identifier>managed-authorizer</identifier>
-        <class>org.apache.nifi.registry.security.authorization.ConfigurableAccessPolicyProvider</class>
-        <property name="User Group Provider">file-user-group-provider</property>
-        <property name="Initial Admin Identity">%s</property>
-        <property name="Authorization Access Policy Provider">file-access-policy-provider</property>
-        <property name="Access Policy Provider">file-access-policy-provider</property>
-        <property name="Access Policy Provider Implementation">org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</class>
-        <property name="Authorizations File">./conf/authorizations.xml</property>
-    </authorizer>
+	<authorizer>
+		<identifier>managed-authorizer</identifier>
+		<class>org.apache.nifi.registry.security.authorization.ConfigurableAccessPolicyProvider</class>
+		<property name="User Group Provider">file-user-group-provider</property>
+		<property name="Initial Admin Identity">%s</property>
+		<property name="Authorization Access Policy Provider">file-access-policy-provider</property>
+		<property name="Access Policy Provider">file-access-policy-provider</property>
+	</authorizer>
 
-    <userGroupProvider>
-        <identifier>file-user-group-provider</identifier>
-        <class>org.apache.nifi.registry.security.authorization.FileUserGroupProvider</class>
-        <property name="Users File">./conf/users.xml</property>
-        <property name="Legacy Authorized Users File"></property>
-    </userGroupProvider>
+	<userGroupProvider>
+		<identifier>file-user-group-provider</identifier>
+		<class>org.apache.nifi.registry.security.authorization.FileUserGroupProvider</class>
+		<property name="Users File">./conf/users.xml</property>
+		<property name="Legacy Authorized Users File"></property>
+	</userGroupProvider>
 
-    <accessPolicyProvider>
-        <identifier>file-access-policy-provider</identifier>
-        <class>org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</class>
-        <property name="Authorizations File">./conf/authorizations.xml</property>
-        <property name="Initial Admin Identity">%s</property>
-    </accessPolicyProvider>
+	<accessPolicyProvider>
+		<identifier>file-access-policy-provider</identifier>
+		<class>org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</class>
+		<property name="Authorizations File">./conf/authorizations.xml</property>
+		<property name="Initial Admin Identity">%s</property>
+		<property name="Access Policy Provider Implementation">org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</property>
+	</accessPolicyProvider>
 </authorizers>`,
 		initialAdminIdentity,
 		initialAdminIdentity,
