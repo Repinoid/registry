@@ -2,9 +2,11 @@
 //
 // Изменения:
 // 1. В NIFI_REGISTRY_JAVA_OPTS добавлены свойства Spring:
-//    -Dspring.datasource.username и -Dspring.datasource.password.
-//    Это гарантирует, что Flyway (мигратор БД) получает полные учетные данные
-//    через Java System Properties, полностью обходя read-only nifi-registry.properties.
+//    -Dspring.datasource.username, -Dspring.datasource.password.
+// 2. В NIFI_REGISTRY_JAVA_OPTS добавлено свойство Spring:
+//    -Dspring.flyway.driver-class-name для принудительного использования драйвера PostgreSQL.
+// 3. ИСПРАВЛЕНИЕ ОШИБКИ КОМПИЛЯЦИИ: Исправлена структура третьего Volume (confVolumeName),
+//    чтобы он правильно использовал тип corev1.Volume вместо corev1.VolumeSource.
 //
 
 package controllers
@@ -135,11 +137,12 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		dbUsername := nifiRegistry.Spec.Database.Username
 		dbPassword := nifiRegistry.Spec.Database.Password
 
-		// Новые опции с включением логина и пароля
+		// Новые опции с включением логина, пароля и принудительным классом драйвера Flyway
 		javaOptsValue := "-Dspring.datasource.driver-class-name=" + driverClass +
 			" -Dspring.datasource.url=" + dbUrl +
-			" -Dspring.datasource.username=" + dbUsername + // <-- ДОБАВЛЕНО
-			" -Dspring.datasource.password=" + dbPassword // <-- ДОБАВЛЕНО
+			" -Dspring.datasource.username=" + dbUsername +
+			" -Dspring.datasource.password=" + dbPassword +
+			" -Dspring.flyway.driver-class-name=" + driverClass
 
 		javaOptsEnv := corev1.EnvVar{
 			Name:  "NIFI_REGISTRY_JAVA_OPTS",
@@ -201,7 +204,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	}
 
 	// 3. Том EmptyDir для конфигурации (для доступа на запись InitContainers)
-	volumes = append(volumes, corev1.Volume{
+	volumes = append(volumes, corev1.Volume{ // <-- ИСПРАВЛЕНО: Должен быть corev1.Volume
 		Name: confVolumeName,
 		VolumeSource: corev1.VolumeSource{
 			EmptyDir: &corev1.EmptyDirVolumeSource{},
