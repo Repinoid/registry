@@ -3,12 +3,19 @@
 package controllers
 
 import (
+	"strconv"
+
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// Вспомогательная функция (обязательна для *int64) 👈 ДОБАВЛЯЕМ
+func int64Ptr(val int64) *int64 {
+	return &val
+}
 
 // deploymentForNifiRegistry возвращает Deployment для NiFi Registry.
 func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.Deployment {
@@ -38,6 +45,11 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
+					// 👈 ДОБАВЛЯЕМ ЭТОТ БЛОК
+					SecurityContext: &corev1.PodSecurityContext{
+						FSGroup: int64Ptr(1000),
+					},
+					// 👈 СРАЗУ ПОСЛЕ ЭТОГО НАЧИНАЕТСЯ InitContainers
 					InitContainers: []corev1.Container{
 						{
 							Name:  "copy-postgres-driver",
@@ -68,6 +80,10 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 								},
 							},
 							Env: []corev1.EnvVar{
+								{
+									Name:  "NIFI_REGISTRY_WEB_HTTP_PORT",
+									Value: strconv.Itoa(18080),
+								},
 								{
 									Name:  "NIFI_REGISTRY_DATABASE_URL",
 									Value: nifiRegistry.Spec.Database.Url,

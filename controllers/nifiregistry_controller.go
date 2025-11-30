@@ -221,7 +221,6 @@ func (r *NifiRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-
 // getRegistryVolumeMounts возвращает VolumeMounts для пода NiFi Registry.
 func getRegistryVolumeMounts(nifiRegistry *registryv1.NifiRegistry) []corev1.VolumeMount {
 	mounts := []corev1.VolumeMount{}
@@ -275,4 +274,3 @@ func getRegistryVolumes(nifiRegistry *registryv1.NifiRegistry) []corev1.Volume {
 
 	return volumes
 }
-

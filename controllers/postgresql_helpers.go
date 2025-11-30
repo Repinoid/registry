@@ -66,6 +66,7 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 									Name:          "db-port",
 								},
 							},
+							// 💥 ИСПРАВЛЕНО: Добавлен PGDATA
 							Env: []corev1.EnvVar{
 								{
 									Name:  "POSTGRES_DB",
@@ -80,10 +81,11 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 									Value: dbPassword,
 								},
 								{
-									Name:  "PGDATA", // <--- ДОБАВЛЕНО: Указываем PGDATA
+									Name:  "PGDATA", 
 									Value: "/var/lib/postgresql/data/pgdata",
 								},
 							},
+							// 💥 ИСПРАВЛЕНО: Использование resource.MustParse
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("100m"),
@@ -96,15 +98,15 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      nifiRegistry.Name + "-postgres-pvc",
-									MountPath: "/var/lib/postgresql/data", // <--- ИСПРАВЛЕНО: Монтируем в /var/lib/postgresql/data, но данные будут в подкаталоге pgdata
+									Name:      nifiRegistry.Name + "-postgres",
+									MountPath: "/var/lib/postgresql/data",
 								},
 							},
 						},
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: nifiRegistry.Name + "-postgres-pvc",
+							Name: nifiRegistry.Name + "-postgres",
 							VolumeSource: corev1.VolumeSource{
 								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 									ClaimName: nifiRegistry.Name + "-postgres",
@@ -116,6 +118,5 @@ func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Depl
 			},
 		},
 	}
-
 	return dep
 }
