@@ -1,5 +1,5 @@
 // Filename: controllers/configmap_helpers.go
-// Changes: Updated configMapIdentityProvidersForNifiRegistry to use ENV variable for Client Secret 
+// Changes: Updated configMapIdentityProvidersForNifiRegistry to use ENV variable for Client Secret
 //          ($NIFI_REGISTRY_OIDC_CLIENT_SECRET).
 
 package controllers
@@ -30,7 +30,7 @@ const registryProvidersXml = `<?xml version="1.0" encoding="UTF-8" standalone="y
 // configMapForNifiRegistry генерирует ConfigMap для providers.xml
 func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
-	
+
 	// Используем более точное имя ConfigMap для providers.xml
 	configMapName := fmt.Sprintf("%s-providers-cm", nifiRegistry.Name)
 
@@ -65,7 +65,7 @@ func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegi
 
 	// 1. Формируем Discovery URL и Redirect URL
 	// Используем DiscoveryUrl из CRD, чтобы ничего не удалять.
-	discoveryURL := nifiRegistry.Spec.Keycloak.DiscoveryUrl 
+	discoveryURL := nifiRegistry.Spec.Keycloak.DiscoveryUrl
 	redirectURL := fmt.Sprintf("%s%s", nifiRegistry.Spec.Keycloak.ExternalURL, oidcCallbackPath)
 
 	// 2. Генерируем содержимое XML
@@ -108,7 +108,7 @@ func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegi
 // configMapAuthorizersForNifiRegistry генерирует ConfigMap для authorizers.xml
 func configMapAuthorizersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
 	labels := map[string]string{"app": nifiRegistry.Name}
-	
+
 	// Имя ConfigMap
 	configMapName := fmt.Sprintf("%s-authorizers-cm", nifiRegistry.Name)
 

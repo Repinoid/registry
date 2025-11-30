@@ -34,7 +34,7 @@ func tlsSecretForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *run
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
 			// Файлы, которые будут смонтированы в /conf/tls/
-			"keystore.jks":  []byte(tlsKeystoreData),
+			"keystore.jks":   []byte(tlsKeystoreData),
 			"truststore.jks": []byte(tlsTruststoreData),
 		},
 	}
@@ -49,25 +49,25 @@ func tlsSecretForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *run
 // этого Secret, а только ссылается на него.
 func keycloakSecretForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.Secret {
 	labels := map[string]string{"app": nifiRegistry.Name}
-	
+
 	// Используем имя Secret, указанное в CRD
 	secretName := nifiRegistry.Spec.Keycloak.ClientSecretName
-	
+
 	// ВНИМАНИЕ: Если ClientSecretName пуст, это может вызвать ошибку.
 	// В рабочем коде здесь должна быть проверка. Предполагаем, что оно задано.
 	if secretName == "" {
 		secretName = fmt.Sprintf("%s-keycloak-secret-default", nifiRegistry.Name)
 	}
-	
+
 	// Здесь мы не можем получить Client Secret, потому что он не хранится в CRD.
 	// Мы предполагаем, что Secret с именем nifiRegistry.Spec.Keycloak.ClientSecretName
 	// уже существует в кластере и содержит ключ "client-secret".
-	
+
 	// Для целей генерации ресурса Secret, нам нужен Secret, чтобы оператор мог
 	// проверить его существование. Поскольку мы не знаем его содержимого, мы
-	// создадим пустой Secret с нужным именем, чтобы избежать ошибок, 
+	// создадим пустой Secret с нужным именем, чтобы избежать ошибок,
 	// если вы захотите, чтобы оператор его создал.
-	
+
 	sec := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
@@ -77,7 +77,7 @@ func keycloakSecretForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
 			// Требуется наличие ключа "client-secret" для монтирования в ENV
-			"client-secret": []byte("REPLACE_ME_WITH_REAL_KEYCLOAK_SECRET"), 
+			"client-secret": []byte("REPLACE_ME_WITH_REAL_KEYCLOAK_SECRET"),
 		},
 	}
 
