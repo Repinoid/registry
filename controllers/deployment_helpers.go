@@ -1,13 +1,12 @@
 // Filename: controllers/deployment_helpers.go
-// Changes: 1. Удаление логики InitContainers и замена ее вызовом функции initContainersForNifiRegistry.
-//          2. ВРЕМЕННЫЙ ОТКАТ: Команда запуска контейнера NiFi Registry изменена обратно на блокирующую.
+// Changes: 1. Удаление всей логики EnvVars, Volumes и VolumeMounts.
+//          2. Замена удаленной логики вызовами initContainersForNifiRegistry,
+//             envVarsAndPortsForNifiRegistry, volumeMountsForNifiRegistry и volumesForNifiRegistry.
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
 
 import (
-	"strconv"
-
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,368 +24,39 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	labels := map[string]string{"app": nifiRegistry.Name}
 	replicas := int32(nifiRegistry.Spec.Size)
 
+	// =======================================
+	// 1. Определение констант и имен
+	// =======================================
+
 	// Имена томов
 	flowStorageVolumeName := nifiRegistry.Name + "-flow"
 	libStorageVolumeName := nifiRegistry.Name + "-lib"
 	confVolumeName := "nifi-registry-conf" // EmptyDir для конфигурации (для InitContainer)
 	tlsSecretVolumeName := "tls-keystore"  // Том для Secret TLS
 
-	// ПУТЬ ДЛЯ ВНЕШНИХ ДРАЙВЕРОВ
+	// ПУТИ
 	externalLibMountPath := "/opt/nifi-registry/external_lib"
-
-	// ПУТЬ ДЛЯ ФАЙЛОВ КОНФИГУРАЦИИ
 	confMountPath := "/opt/nifi-registry/nifi-registry-current/conf"
 	confMountDest := "/mnt/conf" // Путь в Init-контейнерах
 
-	// Имя TLS Secret (необходимо для монтирования файлов JKS)
-	tlsSecretName := nifiRegistry.Name + "-tls-secret"
+	// =======================================
+	// 2. Сборка компонентов
+	// =======================================
 
-	// Определяем InitContainers через helper-функцию из initcontainer_helpers.go
+	// 2.1 InitContainers (из initcontainer_helpers.go)
 	initContainers := initContainersForNifiRegistry(nifiRegistry, confMountDest, confMountPath, externalLibMountPath, libStorageVolumeName)
 
-	// Переменные окружения NiFi Registry
-	envVars := []corev1.EnvVar{
-		{
-			Name:  "NIFI_REGISTRY_WEB_HTTP_PORT",
-			Value: strconv.Itoa(18080),
-		},
-		{
-			Name:  "NIFI_REGISTRY_WEB_HTTP_HOST",
-			Value: "0.0.0.0",
-		},
-	}
+	// 2.2 EnvVars и Ports (из envvars_helpers.go)
+	envVars, containerPorts := envVarsAndPortsForNifiRegistry(nifiRegistry, confMountPath, externalLibMountPath)
+
+	// 2.3 Volumes (из volume_helpers.go)
+	volumes := volumesForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName)
+
+	// 2.4 VolumeMounts (из volume_helpers.go)
+	volumeMounts := volumeMountsForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName, confMountPath, externalLibMountPath)
 
 	// =======================================
-	// 1. ЛОГИКА TLS
-	// =======================================
-	containerPorts := []corev1.ContainerPort{}
-
-	if nifiRegistry.Spec.Tls.Enabled {
-		// Изменяем порт для HTTP
-		envVars[0].Value = "" // Удаляем NIFI_REGISTRY_WEB_HTTP_PORT
-
-		// Добавляем ENV для HTTPS
-		envVars = append(envVars,
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_WEB_HTTPS_HOST",
-				Value: "0.0.0.0",
-			},
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_WEB_HTTPS_PORT",
-				Value: strconv.Itoa(8443),
-			},
-			// Указываем, что keystore и truststore должны находиться в поддиректории /tls каталога conf
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_KEYSTORE_PATH",
-				Value: confMountPath + "/tls/keystore.jks",
-			},
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_KEYSTORE_PASSWORD",
-				Value: nifiRegistry.Spec.Tls.KeystorePassword,
-			},
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_KEYSTORE_TYPE",
-				Value: "JKS",
-			},
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_TRUSTSTORE_PATH",
-				Value: confMountPath + "/tls/truststore.jks",
-			},
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_TRUSTSTORE_PASSWORD",
-				Value: nifiRegistry.Spec.Tls.TruststorePassword,
-			},
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_TRUSTSTORE_TYPE",
-				Value: "JKS",
-			},
-			corev1.EnvVar{
-				Name:  "NIFI_REGISTRY_CLIENT_AUTH",
-				Value: "REQUIRED",
-			},
-		)
-
-		// Добавляем порт HTTPS
-		containerPorts = append(containerPorts, corev1.ContainerPort{
-			ContainerPort: 8443,
-			Name:          "https-port",
-		})
-	} else {
-		// Добавляем порт HTTP
-		containerPorts = append(containerPorts, corev1.ContainerPort{
-			ContainerPort: 18080,
-			Name:          "web-port",
-		})
-	}
-
-	// =======================================
-	// 1.1 ЛОГИКА KEYCLOAK (OIDC)
-	// =======================================
-	if nifiRegistry.Spec.Keycloak.Enabled {
-		// Добавление Client Secret для OIDC (берется из Secret)
-		envVars = append(envVars, corev1.EnvVar{
-			Name: "NIFI_REGISTRY_OIDC_CLIENT_SECRET",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: nifiRegistry.Spec.Keycloak.ClientSecretName, // ИСПОЛЬЗУЕМ ИМЯ ИЗ CRD
-					},
-					Key: "client-secret", // Ключ из Secret (см. secret_helpers.go)
-				},
-			},
-		})
-	}
-
-	// Если включена внешняя БД, добавляем все переменные окружения для подключения к БД
-	if nifiRegistry.Spec.Database.Enabled {
-		// Установка стандартных ENV (переопределяют nifi-registry.properties)
-		dbEnv := []corev1.EnvVar{
-			// Flow Persistence Provider Settings
-			{
-				Name:  "NIFI_REGISTRY_FLOW_PROVIDER",
-				Value: "org.apache.nifi.registry.flow.sql.SqlFlowProvider",
-			},
-			// Database Configuration (PostgreSQL)
-			{
-				Name:  "NIFI_REGISTRY_DB_IMPLEMENTATION",
-				Value: "org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider",
-			},
-			{
-				Name:  "NIFI_REGISTRY_DB_URL",
-				Value: nifiRegistry.Spec.Database.Url,
-			},
-			{
-				Name:  "NIFI_REGISTRY_DB_DRIVER_CLASS",
-				Value: nifiRegistry.Spec.Database.DriverClass,
-			},
-			{
-				Name:  "NIFI_REGISTRY_DB_USERNAME",
-				Value: nifiRegistry.Spec.Database.Username,
-			},
-			// ПАРОЛЬ ОТКРЫТЫМ ТЕКСТОМ (для тестового стенда)
-			{
-				Name:  "NIFI_REGISTRY_DB_PASSWORD",
-				Value: nifiRegistry.Spec.Database.Password,
-			},
-			{
-				Name:  "NIFI_REGISTRY_DB_DRIVER_LIB_DIR",
-				Value: externalLibMountPath, // Указываем изолированный путь для драйвера
-			},
-		}
-		envVars = append(envVars, dbEnv...)
-
-		// ДОБАВЛЕНИЕ NIFI_REGISTRY_JAVA_OPTS для принудительной установки драйвера в Flyway/Spring Boot
-		dbUrl := nifiRegistry.Spec.Database.Url
-		driverClass := nifiRegistry.Spec.Database.DriverClass
-		dbUsername := nifiRegistry.Spec.Database.Username
-		dbPassword := nifiRegistry.Spec.Database.Password
-
-		// Новые опции с включением логина, пароля, принудительным классом драйвера Flyway и loader.path
-		javaOptsValue := "-Dspring.datasource.driver-class-name=" + driverClass +
-			" -Dspring.datasource.url=" + dbUrl +
-			" -Dspring.datasource.username=" + dbUsername +
-			" -Dspring.datasource.password=" + dbPassword +
-			" -Dspring.flyway.driver-class-name=" + driverClass +
-			" -Dloader.path=" + externalLibMountPath // <--- ИСПОЛЬЗУЕТ ИЗОЛИРОВАННЫЙ CLASSPATH
-
-		javaOptsEnv := corev1.EnvVar{
-			Name:  "NIFI_REGISTRY_JAVA_OPTS",
-			Value: javaOptsValue,
-		}
-		envVars = append(envVars, javaOptsEnv)
-	}
-
-	// =======================================
-	// 2. VolumeMounts
-	// =======================================
-
-	volumeMounts := []corev1.VolumeMount{}
-
-	// 1. Монтирование flow storage
-	if nifiRegistry.Spec.FlowStorage.Enabled {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      flowStorageVolumeName,
-			MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
-		})
-	}
-
-	// 2. Монтирование lib storage (для драйвера PostgreSQL, если БД включена)
-	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      libStorageVolumeName,
-			MountPath: externalLibMountPath, // Монтируем внешний Lib в изолированный каталог
-		})
-	}
-
-	// 3. Монтирование тома /conf (EmptyDir) - для доступа Init-контейнеров
-	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		Name:      confVolumeName,
-		MountPath: confMountPath,
-	})
-
-	// 4. Монтирование TLS Secret (в conf/tls)
-	if nifiRegistry.Spec.Tls.Enabled {
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      tlsSecretVolumeName,
-			MountPath: confMountPath + "/tls", // Монтируем Secret в поддиректорию conf/tls
-			ReadOnly:  true,
-		})
-	}
-
-	// 5. Монтирование ConfigMaps для Keycloak (в conf)
-	if nifiRegistry.Spec.Keycloak.Enabled {
-		// providers.xml
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      nifiRegistry.Name + "-providers-cm",
-			MountPath: confMountPath + "/providers.xml",
-			SubPath:   "providers.xml",
-			ReadOnly:  true,
-		})
-		// identity-providers.xml
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      nifiRegistry.Name + "-identity-providers-cm",
-			MountPath: confMountPath + "/identity-providers.xml",
-			SubPath:   "identity-providers.xml",
-			ReadOnly:  true,
-		})
-		// authorizers.xml
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      nifiRegistry.Name + "-authorizers-cm",
-			MountPath: confMountPath + "/authorizers.xml",
-			SubPath:   "authorizers.xml",
-			ReadOnly:  true,
-		})
-	}
-
-	// =======================================
-	// 3. Volumes
-	// =======================================
-
-	volumes := []corev1.Volume{}
-
-	// 1. Том для Flow Storage
-	if nifiRegistry.Spec.FlowStorage.Enabled {
-		volumes = append(volumes, corev1.Volume{
-			Name: flowStorageVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: nifiRegistry.Name + "-flow",
-				},
-			},
-		})
-	}
-
-	// 2. Том для Lib Storage
-	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
-		volumes = append(volumes, corev1.Volume{
-			Name: libStorageVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: nifiRegistry.Name + "-lib",
-				},
-			},
-		})
-	}
-
-	// 3. Том EmptyDir для конфигурации (для доступа на запись InitContainers)
-	volumes = append(volumes, corev1.Volume{
-		Name: confVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			EmptyDir: &corev1.EmptyDirVolumeSource{},
-		},
-	})
-
-	// 4. Том для Secret (TLS Keystore/Truststore)
-	if nifiRegistry.Spec.Tls.Enabled {
-		volumes = append(volumes, corev1.Volume{
-			Name: tlsSecretVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: tlsSecretName, // Используем имя Secret по умолчанию
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "keystore.jks",
-							Path: "keystore.jks", // Монтируется в conf/tls/keystore.jks
-						},
-						{
-							Key:  "truststore.jks",
-							Path: "truststore.jks", // Монтируется в conf/tls/truststore.jks
-						},
-					},
-				},
-			},
-		})
-	}
-
-	// 4.1. Том для Secret (Keycloak Client Secret)
-	if nifiRegistry.Spec.Keycloak.Enabled {
-		volumes = append(volumes, corev1.Volume{
-			Name: nifiRegistry.Spec.Keycloak.ClientSecretName, // Используем имя Secret из CRD
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: nifiRegistry.Spec.Keycloak.ClientSecretName,
-				},
-			},
-		})
-	}
-
-	// 5. Тома для ConfigMaps (Keycloak/OIDC)
-	if nifiRegistry.Spec.Keycloak.Enabled {
-		// providers.xml
-		volumes = append(volumes, corev1.Volume{
-			Name: nifiRegistry.Name + "-providers-cm",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: nifiRegistry.Name + "-providers-cm",
-					},
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "providers.xml",
-							Path: "providers.xml", // Монтируется в /conf/providers.xml
-						},
-					},
-				},
-			},
-		})
-		// identity-providers.xml
-		volumes = append(volumes, corev1.Volume{
-			Name: nifiRegistry.Name + "-identity-providers-cm",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: nifiRegistry.Name + "-identity-providers-cm",
-					},
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "identity-providers.xml",
-							Path: "identity-providers.xml", // Монтируется в /conf/identity-providers.xml
-						},
-					},
-				},
-			},
-		})
-		// authorizers.xml
-		volumes = append(volumes, corev1.Volume{
-			Name: nifiRegistry.Name + "-authorizers-cm",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: nifiRegistry.Name + "-authorizers-cm",
-					},
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "authorizers.xml",
-							Path: "authorizers.xml", // Монтируется в /conf/authorizers.xml
-						},
-					},
-				},
-			},
-		})
-	}
-
-	// =======================================
-	// 4. Создание Deployment
+	// 3. Создание Deployment
 	// =======================================
 
 	dep := &appsv1.Deployment{
@@ -413,16 +83,19 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 						{
 							Name:  nifiRegistry.Name,
 							Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
-							// ******************************************************************************
-							// * ВРЕМЕННОЕ ИЗМЕНЕНИЕ: Откат к стандартной команде запуска для захвата         *
-							// * ошибки запуска NiFi Registry, которая не позволяет создать лог-файл.      *
-							// * Ошибка будет выведена напрямую в stdout/stderr.                          *
-							// ******************************************************************************
-							Command: []string{"/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh"},
-							Args:    []string{"run"},
+							// **************************************************************************************
+							// * ВРЕМЕННОЕ ИЗМЕНЕНИЕ: Использование bash -c для захвата Stack Trace (2>&1),         *
+							// * который вызывает немедленное завершение процесса.                                 *
+							// **************************************************************************************
+							Command: []string{"/bin/bash", "-c"},
+							Args:    []string{"/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh run 2>&1"},
 
-							Ports: containerPorts, // Используем обновленный список портов
+							Ports: containerPorts,
 							Env:   envVars,
+							SecurityContext: &corev1.SecurityContext{
+								RunAsUser:  int64Ptr(1000),
+								RunAsGroup: int64Ptr(1000),
+							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse(nifiRegistry.Spec.Resources.Requests.Cpu().String()),
