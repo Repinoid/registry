@@ -1,8 +1,8 @@
 // Filename: controllers/initcontainer_helpers.go
 // Changes: 
-//          1. ИСПРАВЛЕНЫ ИМЕНА ФАЙЛОВ (по данным Secret): keystore.p12 -> keystore.jks и truststore.p12 -> truststore.jks.
-//          2. ИСПРАВЛЕНЫ ТИПЫ ХРАНИЛИЩ (по данным Secret): PKCS12 -> JKS. 
-//          3. Обновлен шаг копирования.
+//          1-3. Предыдущие исправления TLS/DB.
+//          4. ИСПРАВЛЕНИЕ ЗАГРУЗКИ JDBC ДРАЙВЕРА: Использован образ Bash вместо curlimages/curl 
+//             для повышения надежности и обеспечения логирования.
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
@@ -135,17 +135,23 @@ fi
 	containers = append(containers, configurePropertiesContainer)
 
 	// 3. Контейнер для загрузки JDBC драйвера
-	// ИСПРАВЛЕНИЕ: Жестко заданный URL для обхода ошибки компиляции Go с динамическим URL
-	downloadDriverCommand := fmt.Sprintf("curl -sL %s -o %s/postgresql-jdbc.jar", "https://jdbc.postgresql.org/download/postgresql-42.7.3.jar", externalLibMountPath)
+	downloadDriverCommand := fmt.Sprintf(
+		"echo 'Downloading JDBC Driver...'; curl -sL %s -o %s/postgresql-jdbc.jar; ls -l %s/postgresql-jdbc.jar", 
+		"https://jdbc.postgresql.org/download/postgresql-42.7.3.jar", 
+		externalLibMountPath,
+		externalLibMountPath,
+	)
+	
 	downloadDriverContainer := corev1.Container{
 		Name:    "download-db-driver",
-		Image:   "curlimages/curl:latest",
+		// Используем bash, чтобы убедиться, что команды выполняются корректно и мы видим логи
+		Image:   "bash:latest", 
 		Command: []string{"sh", "-c"},
 		Args:    []string{downloadDriverCommand},
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      libStorageVolumeName,
-				MountPath: externalLibMountPath,
+				MountPath: externalLibMountPath, // /opt/nifi-registry/nifi-registry-current/lib/
 			},
 		},
 	}
