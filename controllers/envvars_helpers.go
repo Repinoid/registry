@@ -1,5 +1,5 @@
 // Filename: controllers/envvars_helpers.go
-// Changes: НОВЫЙ ФАЙЛ. Выделение всей логики создания EnvVars и ContainerPorts.
+// Changes: 1. Добавление опции -Xmx к NIFI_REGISTRY_JAVA_OPTS.
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
@@ -151,8 +151,12 @@ func envVarsAndPortsForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, confM
 		dbUsername := nifiRegistry.Spec.Database.Username
 		dbPassword := nifiRegistry.Spec.Database.Password
 
+		// ОГРАНИЧЕНИЕ ПАМЯТИ JVM: берем Request Memory (512Mi)
+		memoryRequest := nifiRegistry.Spec.Resources.Requests.Memory().String()
+
 		// Новые опции с включением логина, пароля, принудительным классом драйвера Flyway и loader.path
-		javaOptsValue := "-Dspring.datasource.driver-class-name=" + driverClass +
+		javaOptsValue := "-Xmx" + memoryRequest +
+			" -Dspring.datasource.driver-class-name=" + driverClass +
 			" -Dspring.datasource.url=" + dbUrl +
 			" -Dspring.datasource.username=" + dbUsername +
 			" -Dspring.datasource.password=" + dbPassword +
