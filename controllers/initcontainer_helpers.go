@@ -1,161 +1,205 @@
 // Filename: controllers/initcontainer_helpers.go
-// Changes: 
-//          1-3. Предыдущие исправления TLS/DB.
-//          4. ИСПРАВЛЕНИЕ ЗАГРУЗКИ JDBC ДРАЙВЕРА: Использован образ Bash вместо curlimages/curl 
-//             для повышения надежности и обеспечения логирования.
+// Changes:
+//          1. ИСПРАВЛЕНИЕ: Восстановлено определение переменной 'cmd' в функции downloadDbDriverInitContainer,
+//             чтобы устранить ошибку компиляции "undefined: cmd".
+//          2. Сохранены изменения по настройке logback на STDOUT (Шаг 250).
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
 
 import (
 	"fmt"
+	"strconv"
 
 	registryv1 "github.com/repinoid/nreg-oper/api/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
-// initContainersForNifiRegistry возвращает список Init-контейнеров для настройки NiFi Registry.
-func initContainersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, confMountDest string, confMountPath string, externalLibMountPath string, libStorageVolumeName string) []corev1.Container {
-	var containers []corev1.Container
+// configureRegistryPropertiesInitContainer создает InitContainer для настройки nifi-registry.properties.
+func configureRegistryPropertiesInitContainer(nifiRegistry *registryv1.NifiRegistry, volumeMounts []corev1.VolumeMount, confMountPath string, externalLibMountPath string) corev1.Container {
+	propertiesFile := "nifi-registry.properties"
 
-	// 1. Контейнер для копирования конфигурации по умолчанию
-	copyConfContainer := corev1.Container{
-		Name:    "copy-conf",
-		Image:   nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
-		Command: []string{"sh", "-c"},
-		Args:    []string{fmt.Sprintf("cp -R %s/. %s", confMountPath, confMountDest)},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "nifi-registry-conf", // MountName из deployment_helpers.go
-				MountPath: confMountDest,
-			},
-		},
+	// ----------------------------------------------------------------------
+	// 1. ЛОГИКА ДЛЯ БД: ГЕНЕРАЦИЯ КОНФИГУРАЦИИ
+	// ----------------------------------------------------------------------
+	dbSettings := ""
+	if nifiRegistry.Spec.Database.Enabled {
+		// Включаем настройки БД в nifi-registry.properties
+		dbSettings = fmt.Sprintf(`
+			# Database Configuration (PostgreSQL)
+			sed -i 's|nifi.registry.flow.persistence.provider.implementation.class=.*|nifi.registry.flow.persistence.provider.implementation.class=org.apache.nifi.registry.flow.sql.SqlFlowProvider|g' %s/%s;
+			sed -i 's|nifi.registry.flow.persistence.connect.timeout=.*|nifi.registry.flow.persistence.connect.timeout=10s|g' %s/%s;
+			
+			# Установка пустых значений для предотвращения конфликтов
+			sed -i 's|nifi.registry.db.url=.*|nifi.registry.db.url=|g' %s/%s;
+			sed -i 's|nifi.registry.db.driver.class=.*|nifi.registry.db.driver.class=|g' %s/%s;
+			sed -i 's|nifi.registry.db.driver.directory=.*|nifi.registry.db.driver.directory=|g' %s/%s;
+			sed -i 's|nifi.registry.db.username=.*|nifi.registry.db.username=|g' %s/%s;
+			sed -i 's|nifi.registry.db.password=.*|nifi.registry.db.password=|g' %s/%s;
+		`,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+		)
 	}
-	containers = append(containers, copyConfContainer)
 
-	// =====================================================================================================
-	// 2. Контейнер для конфигурации nifi-registry.properties (TLS, Database, Keycloak)
-	// =====================================================================================================
-	configurePropertiesScript := `
-set -xe;
+	// ----------------------------------------------------------------------
+	// 2. ЛОГИКА ДЛЯ TLS: ГЕНЕРАЦИЯ КОНФИГУРАЦИИ
+	// ----------------------------------------------------------------------
+	tlsSettings := ""
+	tlsEnabled := "false"
+	// NOTE: Используем nifiRegistry.Spec.Tls.Enabled, а не nifiRegistry.Spec.Tls.Port, для проверки включения TLS
+	if nifiRegistry.Spec.Tls.Enabled {
+		tlsEnabled = "true"
+		// Указываем, что keystore и truststore должны находиться в поддиректории /tls каталога conf
+		tlsSettings = fmt.Sprintf(`
+			sed -i 's|nifi.registry.security.keystore=.*|nifi.registry.security.keystore=%s/tls/keystore.jks|g' %s/%s;
+			sed -i 's|nifi.registry.security.keystorePasswd=.*|nifi.registry.security.keystorePasswd=%s|g' %s/%s;
+			sed -i 's|nifi.registry.security.truststore=.*|nifi.registry.security.truststore=%s/tls/truststore.jks|g' %s/%s;
+			sed -i 's|nifi.registry.security.truststorePasswd=.*|nifi.registry.security.truststorePasswd=%s|g' %s/%s;
+			sed -i 's|nifi.registry.security.truststoreType=.*|nifi.registry.security.truststoreType=JKS|g' %s/%s;
+			sed -i 's|nifi.registry.security.keystoreType=.*|nifi.registry.security.keystoreType=JKS|g' %s/%s;
+			sed -i 's|nifi.registry.security.needClientAuth=.*|nifi.registry.security.needClientAuth=%s|g' %s/%s;
+		`,
+			confMountPath, confMountPath, propertiesFile,
+			nifiRegistry.Spec.Tls.KeystorePassword, confMountPath, propertiesFile,
+			confMountPath, confMountPath, propertiesFile,
+			nifiRegistry.Spec.Tls.TruststorePassword, confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			nifiRegistry.Spec.Tls.ClientAuth, confMountPath, propertiesFile, // ИСПОЛЬЗУЕМ ClientAuth из CRD
+		)
+	}
 
-# Копирование Keystore/Truststore из монтированного пути (/conf/tls/) в конечный путь (/conf/)
-# Используем фактические имена файлов из Secret: keystore.jks и truststore.jks
-cp %s/tls/keystore.jks %s/keystore.jks;
-cp %s/tls/truststore.jks %s/truststore.jks;
+	// ----------------------------------------------------------------------
+	// 3. ЛОГИКА ДЛЯ LOGBACK.XML: ПЕРЕКЛЮЧЕНИЕ НА STDOUT
+	// ----------------------------------------------------------------------
+	// Заменяем имя файла в Appender с nifi-registry-app.log на <target>STDOUT</target>
+	// И меняем класс Appender на ConsoleAppender
+	logbackPatch := fmt.Sprintf("sed -i 's|<file>logs/nifi-registry-app.log</file>|<target>STDOUT</target>|g' %s/logback.xml && ", confMountPath) +
+		fmt.Sprintf("sed -i 's|ch.qos.logback.core.rolling.RollingFileAppender|ch.qos.logback.core.ConsoleAppender|g' %s/logback.xml", confMountPath)
 
+	// ----------------------------------------------------------------------
+	// 4. ГЛАВНАЯ КОМАНДА СКРИПТА
+	// ----------------------------------------------------------------------
+	cmd := fmt.Sprintf(`
+		set -e;
 
-# TLS Configuration
-echo -e '\n# TLS Configuration' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.keystore=%s/keystore.jks' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.keystorePasswd=%s' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.keystoreType=JKS' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.truststore=%s/truststore.jks' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.truststorePasswd=%s' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.truststoreType=JKS' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.needClientAuth=%s' >> %s/nifi-registry.properties;
-echo 'nifi.registry.web.https.host=%s' >> %s/nifi-registry.properties;
-echo 'nifi.registry.web.https.port=%s' >> %s/nifi-registry.properties;
-sed -i '/nifi.registry.web.http.port=/c\#nifi.registry.web.http.port=8080' %s/nifi-registry.properties;
+		# 1. Настройка TLS/Security:
+		%s
+		sed -i 's|nifi.registry.security.authorizer=.*|nifi.registry.security.authorizer=managed-authorizer|g' %s/%s;
+		sed -i 's|nifi.registry.security.secure.flow.management.actions=.*|nifi.registry.security.secure.flow.management.actions=%s|g' %s/%s;
 
-# Database Configuration
-echo -e '\n# Database Configuration' >> %s/nifi-registry.properties;
-echo 'nifi.registry.flow.provider=%s' >> %s/nifi-registry.properties;
-echo 'nifi.registry.db.implementation=%s' >> %s/nifi-registry.properties;
-sed -i 's|^nifi.registry.db.url=.*$|nifi.registry.db.url=%s|g' %s/nifi-registry.properties;
-sed -i 's|^nifi.registry.db.driver.class=.*$|nifi.registry.db.driver.class=%s|g' %s/nifi-registry.properties;
-sed -i 's|^nifi.registry.db.username=.*$|nifi.registry.db.username=%s|g' %s/nifi-registry.properties;
-sed -i 's|^nifi.registry.db.password=.*$|nifi.registry.db.password=%s|g' %s/nifi-registry.properties;
+		# 2. Настройка базы данных:
+		%s
+		
+		# 3. Настройка HTTP/HTTPS портов:
+		sed -i 's|nifi.registry.web.http.port=.*|nifi.registry.web.http.port=%s|g' %s/%s;
+		sed -i 's|nifi.registry.web.https.port=.*|nifi.registry.web.https.port=%s|g' %s/%s;
+		
+		# 4. Настройка логирования в STDOUT для Kubernetes:
+		%s
+		
+		# 5. Установка режима DEBUG (ВЫСОКИЙ ПРИОРИТЕТ)
+		sed -i 's|<logger name="org.apache.nifi" level="INFO"/>|<logger name="org.apache.nifi" level="DEBUG"/>|g' %s/logback.xml;
 
-# Keycloak/OIDC Configuration (если включен)
-if [ "%t" = "true" ]; then
-    echo -e '\n# OIDC Configuration' >> %s/nifi-registry.properties;
-    echo 'nifi.registry.security.identity.providers.configuration.file=%s/identity-providers.xml' >> %s/nifi-registry.properties;
-    echo 'nifi.registry.security.authorizer.configuration.file=%s/authorizers.xml' >> %s/nifi-registry.properties;
-fi
-`
+		# 6. Вывод финальной конфигурации (DEBUG):
+		echo "--- Final %s ---";
+		cat %s/%s;
+		echo "--- Final logback.xml ---";
+		cat %s/logback.xml;
+	`,
+		// 1. TLS/Security
+		tlsSettings,
+		confMountPath, propertiesFile,
+		tlsEnabled, confMountPath, propertiesFile,
 
-	configurePropertiesCommand := fmt.Sprintf(
-		configurePropertiesScript,
-		// Копирование: 4 аргумента
-		confMountPath, confMountDest, // cp keystore.jks
-		confMountPath, confMountDest, // cp truststore.jks
+		// 2. Database
+		dbSettings,
 
-		confMountDest, // 5. (TLS start)
+		// 3. Ports
+		strconv.Itoa(18080), confMountPath, propertiesFile, // HTTP PORT
+		strconv.Itoa(8443), confMountPath, propertiesFile, // HTTPS PORT
 
-		// TLS properties: 18 аргументов
-		confMountDest, confMountDest, // 6, 7. keystore path/confMountDest (теперь JKS)
-		nifiRegistry.Spec.Tls.KeystorePassword, confMountDest, // 8, 9. keystore password/confMountDest
-		confMountDest, // 10. keystoreType (>> %s)
+		// 4. Logback Patch
+		logbackPatch,
 
-		confMountDest, confMountDest, // 11, 12. truststore path/confMountDest (теперь JKS)
-		nifiRegistry.Spec.Tls.TruststorePassword, confMountDest, // 13, 14. truststore password/confMountDest
-		confMountDest, // 15. truststoreType (>> %s)
+		// 5. DEBUG Logging
+		confMountPath,
 
-		nifiRegistry.Spec.Tls.ClientAuth, confMountDest, // 16, 17. client auth/confMountDest
-
-		"0.0.0.0", confMountDest, // 18, 19. HTTPS Host/confMountDest
-		"8443", confMountDest, // 20, 21. HTTPS Port/confMountDest
-		confMountDest, // 22. sed for HTTP Port
-
-		// DB properties: 12 аргументов
-		confMountDest, // 23. (DB start)
-		"org.apache.nifi.flow.sql.SqlFlowProvider", confMountDest, // 24, 25. flow provider/confMountDest
-		"org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider", confMountDest, // 26, 27. db implementation/confMountDest
-		nifiRegistry.Spec.Database.Url, confMountDest, // 28, 29. db url/confMountDest
-		nifiRegistry.Spec.Database.DriverClass, confMountDest, // 30, 31. db driver class/confMountDest
-		nifiRegistry.Spec.Database.Username, confMountDest, // 32, 33. db username/confMountDest
-		nifiRegistry.Spec.Database.Password, confMountDest, // 34, 35. db password/confMountDest
-
-		// Keycloak/OIDC: 6 аргументов
-		nifiRegistry.Spec.Keycloak.Enabled, // 36. %t
-		confMountDest, // 37. confMountDest (echo start)
-		confMountPath, confMountDest, // 38, 39. identity providers path/confMountDest
-		confMountPath, confMountDest, // 40, 41. authorizers path/confMountDest
+		// 6. Final Output
+		propertiesFile,
+		confMountPath, propertiesFile,
+		confMountPath,
 	)
 
-	configurePropertiesContainer := corev1.Container{
-		Name:    "configure-registry-properties",
-		Image:   "bash:latest",
-		Command: []string{"sh", "-c"},
-		Args:    []string{configurePropertiesCommand},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "nifi-registry-conf",
-				MountPath: confMountDest,
-			},
-			// Добавление VolumeMount для Secret TLS
-			{
-				Name:      "tls-keystore",
-				MountPath: confMountPath + "/tls", // /opt/nifi-registry/nifi-registry-current/conf/tls
-				ReadOnly:  true,
-			},
-		},
+	return corev1.Container{
+		Name:            "configure-registry-properties",
+		Image:           nifiRegistry.Spec.InitImage, // Теперь InitImage должен быть определен в CRD (Шаг 252)
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"/bin/bash", "-c"},
+		Args:            []string{cmd},
+		VolumeMounts:    volumeMounts,
 	}
-	containers = append(containers, configurePropertiesContainer)
+}
 
-	// 3. Контейнер для загрузки JDBC драйвера
-	downloadDriverCommand := fmt.Sprintf(
-		"echo 'Downloading JDBC Driver...'; curl -sL %s -o %s/postgresql-jdbc.jar; ls -l %s/postgresql-jdbc.jar", 
-		"https://jdbc.postgresql.org/download/postgresql-42.7.3.jar", 
-		externalLibMountPath,
-		externalLibMountPath,
+// copyConfInitContainer создает InitContainer для копирования конфигурации (conf).
+func copyConfInitContainer(nifiRegistry *registryv1.NifiRegistry, volumeMounts []corev1.VolumeMount, confMountPath string) corev1.Container {
+	return corev1.Container{
+		Name:            "copy-conf",
+		Image:           nifiRegistry.Spec.InitImage, // Используем InitImage
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"cp"},
+		Args:            []string{"-R", "/opt/nifi-registry/nifi-registry-current/conf/.", confMountPath},
+		VolumeMounts:    volumeMounts,
+	}
+}
+
+// downloadDbDriverInitContainer создает InitContainer для загрузки драйвера базы данных.
+func downloadDbDriverInitContainer(nifiRegistry *registryv1.NifiRegistry, volumeMounts []corev1.VolumeMount) corev1.Container {
+	// --- ИСПРАВЛЕНИЕ: ВОССТАНОВЛЕНА ПЕРЕМЕННАЯ cmd ---
+	cmd := fmt.Sprintf(`
+		set -e;
+		echo "--- Downloading JDBC Driver ---";
+		# Проверка: существует ли уже драйвер?
+		if [ -f /opt/nifi-registry/external-lib/driver.jar ]; then
+			echo "Driver already exists. Skipping download.";
+		else
+			# Скачивание:
+			wget -q -O /opt/nifi-registry/external-lib/driver.jar "%s";
+		fi
+		ls -l /opt/nifi-registry/external-lib;
+		echo "--- Download finished ---";
+	`,
+		nifiRegistry.Spec.Database.DriverDownloadURL,
 	)
-	
-	downloadDriverContainer := corev1.Container{
-		Name:    "download-db-driver",
-		// Используем bash, чтобы убедиться, что команды выполняются корректно и мы видим логи
-		Image:   "bash:latest", 
-		Command: []string{"sh", "-c"},
-		Args:    []string{downloadDriverCommand},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      libStorageVolumeName,
-				MountPath: externalLibMountPath, // /opt/nifi-registry/nifi-registry-current/lib/
-			},
-		},
-	}
-	containers = append(containers, downloadDriverContainer)
+	// --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-	return containers
+	return corev1.Container{
+		Name:            "download-db-driver",
+		Image:           nifiRegistry.Spec.InitImage, // Используем InitImage
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"/bin/bash", "-c"},
+		Args:            []string{cmd},
+		VolumeMounts:    volumeMounts,
+	}
+}
+
+// initContainersForNifiRegistry создает список InitContainers.
+func initContainersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, volumeMounts []corev1.VolumeMount, confMountPath string, externalLibMountPath string) []corev1.Container {
+
+	initContainers := []corev1.Container{
+		copyConfInitContainer(nifiRegistry, volumeMounts, confMountPath),
+		configureRegistryPropertiesInitContainer(nifiRegistry, volumeMounts, confMountPath, externalLibMountPath),
+	}
+
+	if nifiRegistry.Spec.Database.Enabled {
+		initContainers = append(initContainers, downloadDbDriverInitContainer(nifiRegistry, volumeMounts))
+	}
+
+	return initContainers
 }

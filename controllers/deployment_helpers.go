@@ -1,5 +1,7 @@
 // Filename: controllers/deployment_helpers.go
-// Changes: 1. Добавлены объявление томов и монтирование ConfigMap для Keycloak (identity-providers.xml, authorizers.xml)
+// Changes: 
+//          1. ИСПРАВЛЕНИЕ: Исправлен вызов initContainersForNifiRegistry в Шаге 2.1. 
+//             Переданы правильные 4 аргумента: nifiRegistry, volumeMounts (слайс), confMountPath, externalLibMountPath.
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
@@ -39,7 +41,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	// ПУТИ
 	externalLibMountPath := "/opt/nifi-registry/external_lib"
 	confMountPath := "/opt/nifi-registry/nifi-registry-current/conf"
-	confMountDest := "/mnt/conf" // Путь в Init-контейнерах
+	// confMountDest := "/mnt/conf" // ЭТА ПЕРЕМЕННАЯ НЕ НУЖНА В ЭТОМ ФАЙЛЕ
 
 	// ПУТИ МОНТИРОВАНИЯ KEYCLOAK
 	identityConfMountPath := confMountPath + "/identity-providers.xml"
@@ -49,14 +51,12 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	// 2. Сборка компонентов
 	// =======================================
 
-	// 2.1 InitContainers (из initcontainer_helpers.go)
-	initContainers := initContainersForNifiRegistry(nifiRegistry, confMountDest, confMountPath, externalLibMountPath, libStorageVolumeName)
-
-	// 2.2 EnvVars и Ports (из envvars_helpers.go)
-	envVars, containerPorts := envVarsAndPortsForNifiRegistry(nifiRegistry, confMountPath, externalLibMountPath)
-
 	// 2.3 Volumes (из volume_helpers.go)
 	volumes := volumesForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName)
+
+	// 2.4 VolumeMounts (из volume_helpers.go)
+	volumeMounts := volumeMountsForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName, confMountPath, externalLibMountPath)
+
 
 	// ДОБАВЛЕНИЕ ТОМОВ KEYCLOAK
 	if nifiRegistry.Spec.Keycloak.Enabled {
@@ -82,13 +82,8 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 				},
 			},
 		})
-	}
 
-	// 2.4 VolumeMounts (из volume_helpers.go)
-	volumeMounts := volumeMountsForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName, confMountPath, externalLibMountPath)
-
-	// ДОБАВЛЕНИЕ МОНТИРОВАНИЯ KEYCLOAK
-	if nifiRegistry.Spec.Keycloak.Enabled {
+		// ДОБАВЛЕНИЕ МОНТИРОВАНИЯ KEYCLOAK
 		// Монтирование identity-providers.xml
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      identityConfVolumeName,
@@ -104,6 +99,18 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			ReadOnly:  true,
 		})
 	}
+	
+	// 2.1 InitContainers (из initcontainer_helpers.go)
+	// ИСПРАВЛЕНИЕ ВЫЗОВА: 4 аргумента правильных типов:
+	initContainers := initContainersForNifiRegistry(
+		nifiRegistry, 
+		volumeMounts, // <-- ИСПОЛЬЗУЕМ СЛАЙС volumeMounts, определенный выше
+		confMountPath, 
+		externalLibMountPath,
+	)
+
+	// 2.2 EnvVars и Ports (из envvars_helpers.go)
+	envVars, containerPorts := envVarsAndPortsForNifiRegistry(nifiRegistry, confMountPath, externalLibMountPath)
 
 	// =======================================
 	// 3. Создание Deployment

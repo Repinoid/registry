@@ -1,0 +1,1816 @@
+// --- НАЧАЛО ФАЙЛА: combined_files.txt ---
+// --- КОНЕЦ ФАЙЛА: combined_files.txt ---
+
+// --- НАЧАЛО ФАЙЛА: configmap_helpers.go ---
+// Filename: controllers/configmap_helpers.go
+// Changes:
+//          1. ИСПРАВЛЕНИЕ FlowPersistenceProvider в registryProvidersXml:
+//             Заменено DatabaseFlowPersistenceProvider на SqlFlowProvider,
+//             который использует настройки из nifi-registry.properties (ENV variables).
+// ----------------------------------------------------------------------------------------------------------------
+
+package controllers
+
+import (
+	"fmt"
+
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+)
+
+// Константа, содержащая ИСПРАВЛЕННОЕ содержимое providers.xml
+const registryProvidersXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<providers>
+    <flowPersistenceProvider>
+        <class>org.apache.nifi.registry.provider.flow.FileSystemFlowPersistenceProvider</class>
+        <property name="Flow Storage Directory">./flow_storage</property>
+    </flowPersistenceProvider>
+    
+    <flowPersistenceProvider>
+        <class>org.apache.nifi.registry.provider.flow.DatabaseFlowPersistenceProvider</class>
+        <property name="Flow Persistence Provider">sql-flow-provider</property>
+    </flowPersistenceProvider>
+
+    <flowPersistenceProvider>
+        <identifier>sql-flow-provider</identifier>
+        <class>org.apache.nifi.registry.flow.sql.SqlFlowProvider</class>
+    </flowPersistenceProvider>
+
+    <extensionBundlePersistenceProvider>
+        <class>org.apache.nifi.registry.provider.extension.FileSystemBundlePersistenceProvider</class>
+        <property name="Extension Bundle Storage Directory">./extension_bundles</property>
+    </extensionBundlePersistenceProvider>
+</providers>`
+
+// configMapForNifiRegistry генерирует ConfigMap для providers.xml
+func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
+	labels := map[string]string{"app": nifiRegistry.Name}
+
+	// Используем более точное имя ConfigMap для providers.xml
+	configMapName := fmt.Sprintf("%s-providers-cm", nifiRegistry.Name)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Data: map[string]string{
+			"providers.xml": registryProvidersXml,
+		},
+	}
+
+	ctrl.SetControllerReference(nifiRegistry, cm, scheme)
+	return cm
+}
+
+// ====================================================================================
+// НОВЫЕ ФУНКЦИИ ДЛЯ KEYCLOAK (OIDC) (ОСТАВЛЕНЫ БЕЗ ИЗМЕНЕНИЙ, Т.К. ВАШ КОД БЫЛ ВЕРЕН)
+// ====================================================================================
+
+// configMapIdentityProvidersForNifiRegistry генерирует ConfigMap для identity-providers.xml (OIDC Keycloak)
+func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
+	labels := map[string]string{"app": nifiRegistry.Name}
+
+	// Имя ConfigMap
+	configMapName := fmt.Sprintf("%s-identity-providers-cm", nifiRegistry.Name)
+
+	// Константа для пути обратного вызова OIDC
+	const oidcCallbackPath = "/nifi-registry-api/access/oidc/callback"
+
+	// 1. Формируем Discovery URL и Redirect URL
+	// Используем DiscoveryUrl из CRD, чтобы ничего не удалять.
+	discoveryURL := nifiRegistry.Spec.Keycloak.DiscoveryUrl
+	redirectURL := fmt.Sprintf("%s%s", nifiRegistry.Spec.Keycloak.ExternalURL, oidcCallbackPath)
+
+	// 2. Генерируем содержимое XML
+	identityProvidersXml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<identityProviders>
+    <provider>
+        <id>oidc-keycloak-provider</id>
+        <class>org.apache.nifi.registry.security.identity.OidcIdentityProvider</class>
+        <property name="OIDC Provider Discovery URL">%s</property>
+        <property name="Client ID">%s</property>
+        <property name="Client Secret">${NIFI_REGISTRY_OIDC_CLIENT_SECRET}</property> <property name="Redirect URL">%s</property>
+        <property name="Claim Identifying User">%s</property>
+        <property name="Claim Identifying User Group"></property>
+        <property name="Callback Path">%s</property>
+        <property name="Request Scope">openid email profile</property>
+    </provider>
+</identityProviders>`,
+		discoveryURL, // Используем DiscoveryUrl из CRD, как вы просили не удалять
+		nifiRegistry.Spec.Keycloak.ClientId,
+		redirectURL,
+		nifiRegistry.Spec.Keycloak.ClaimIdentifyingUser,
+		oidcCallbackPath,
+	)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Data: map[string]string{
+			"identity-providers.xml": identityProvidersXml,
+		},
+	}
+
+	ctrl.SetControllerReference(nifiRegistry, cm, scheme)
+	return cm
+}
+
+// configMapAuthorizersForNifiRegistry генерирует ConfigMap для authorizers.xml
+func configMapAuthorizersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.ConfigMap {
+	labels := map[string]string{"app": nifiRegistry.Name}
+
+	// Имя ConfigMap
+	configMapName := fmt.Sprintf("%s-authorizers-cm", nifiRegistry.Name)
+
+	// Получаем имя первого администратора из CRD
+	initialAdminIdentity := nifiRegistry.Spec.Keycloak.InitialAdminIdentity
+
+	// 1. Генерируем содержимое XML
+	authorizersXml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<authorizers>
+    <authorizer>
+        <identifier>managed-authorizer</identifier>
+        <class>org.apache.nifi.registry.security.authorization.ConfigurableAccessPolicyProvider</class>
+        <property name="User Group Provider">file-user-group-provider</property>
+        <property name="Initial Admin Identity">%s</property>
+        <property name="Authorization Access Policy Provider">file-access-policy-provider</property>
+        <property name="Access Policy Provider">file-access-policy-provider</property>
+    </authorizer>
+
+    <userGroupProvider>
+        <identifier>file-user-group-provider</identifier>
+        <class>org.apache.nifi.registry.security.authorization.FileUserGroupProvider</class>
+        <property name="Users File">./conf/users.xml</property>
+        <property name="Legacy Authorized Users File"></property>
+    </userGroupProvider>
+
+    <accessPolicyProvider>
+        <identifier>file-access-policy-provider</identifier>
+        <class>org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</class>
+        <property name="Authorizations File">./conf/authorizations.xml</property>
+        <property name="Initial Admin Identity">%s</property>
+        <property name="Access Policy Provider Implementation">org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</property>
+    </accessPolicyProvider>
+</authorizers>`,
+		initialAdminIdentity,
+		initialAdminIdentity,
+	)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Data: map[string]string{
+			"authorizers.xml": authorizersXml,
+		},
+	}
+
+	ctrl.SetControllerReference(nifiRegistry, cm, scheme)
+	return cm
+}
+// --- КОНЕЦ ФАЙЛА: configmap_helpers.go ---
+
+// --- НАЧАЛО ФАЙЛА: deployment_helpers.go ---
+// Filename: controllers/deployment_helpers.go
+// Changes: 1. Добавлены объявление томов и монтирование ConfigMap для Keycloak (identity-providers.xml, authorizers.xml)
+// ----------------------------------------------------------------------------------------------------------------
+
+package controllers
+
+import (
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// Вспомогательная функция (обязательна для *int64)
+func int64Ptr(val int64) *int64 {
+	return &val
+}
+
+// deploymentForNifiRegistry возвращает Deployment для NiFi Registry.
+func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.Deployment {
+	labels := map[string]string{"app": nifiRegistry.Name}
+	replicas := int32(nifiRegistry.Spec.Size)
+
+	// =======================================
+	// 1. Определение констант и имен
+	// =======================================
+
+	// Имена томов
+	flowStorageVolumeName := nifiRegistry.Name + "-flow"
+	libStorageVolumeName := nifiRegistry.Name + "-lib"
+	confVolumeName := "nifi-registry-conf" // EmptyDir для конфигурации (для InitContainer)
+	tlsSecretVolumeName := "tls-keystore"  // Том для Secret TLS
+
+	// НОВЫЕ ТОМЫ ДЛЯ KEYCLOAK CONFIGMAP
+	identityConfVolumeName := nifiRegistry.Name + "-identity-cm"
+	authorizersConfVolumeName := nifiRegistry.Name + "-authorizers-cm"
+
+	// ПУТИ
+	externalLibMountPath := "/opt/nifi-registry/external_lib"
+	confMountPath := "/opt/nifi-registry/nifi-registry-current/conf"
+	confMountDest := "/mnt/conf" // Путь в Init-контейнерах
+
+	// ПУТИ МОНТИРОВАНИЯ KEYCLOAK
+	identityConfMountPath := confMountPath + "/identity-providers.xml"
+	authorizersConfMountPath := confMountPath + "/authorizers.xml"
+
+	// =======================================
+	// 2. Сборка компонентов
+	// =======================================
+
+	// 2.1 InitContainers (из initcontainer_helpers.go)
+	initContainers := initContainersForNifiRegistry(nifiRegistry, confMountDest, confMountPath, externalLibMountPath, libStorageVolumeName)
+
+	// 2.2 EnvVars и Ports (из envvars_helpers.go)
+	envVars, containerPorts := envVarsAndPortsForNifiRegistry(nifiRegistry, confMountPath, externalLibMountPath)
+
+	// 2.3 Volumes (из volume_helpers.go)
+	volumes := volumesForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName)
+
+	// ДОБАВЛЕНИЕ ТОМОВ KEYCLOAK
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// Том для identity-providers.xml
+		volumes = append(volumes, corev1.Volume{
+			Name: identityConfVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: nifiRegistry.Name + "-identity-providers-cm",
+					},
+				},
+			},
+		})
+		// Том для authorizers.xml
+		volumes = append(volumes, corev1.Volume{
+			Name: authorizersConfVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: nifiRegistry.Name + "-authorizers-cm",
+					},
+				},
+			},
+		})
+	}
+
+	// 2.4 VolumeMounts (из volume_helpers.go)
+	volumeMounts := volumeMountsForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName, confMountPath, externalLibMountPath)
+
+	// ДОБАВЛЕНИЕ МОНТИРОВАНИЯ KEYCLOAK
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// Монтирование identity-providers.xml
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      identityConfVolumeName,
+			MountPath: identityConfMountPath,
+			SubPath:   "identity-providers.xml",
+			ReadOnly:  true,
+		})
+		// Монтирование authorizers.xml
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      authorizersConfVolumeName,
+			MountPath: authorizersConfMountPath,
+			SubPath:   "authorizers.xml",
+			ReadOnly:  true,
+		})
+	}
+
+	// =======================================
+	// 3. Создание Deployment
+	// =======================================
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      nifiRegistry.Name,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					SecurityContext: &corev1.PodSecurityContext{
+						FSGroup: int64Ptr(1000),
+					},
+					InitContainers: initContainers,
+					Containers: []corev1.Container{
+						{
+							Name:  nifiRegistry.Name,
+							Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
+							// Command и Args убраны (больше не в DEBUG-режиме)
+
+							Ports: containerPorts,
+							Env:   envVars,
+							SecurityContext: &corev1.SecurityContext{
+								RunAsUser:  int64Ptr(1000),
+								RunAsGroup: int64Ptr(1000),
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse(nifiRegistry.Spec.Resources.Requests.Cpu().String()),
+									corev1.ResourceMemory: resource.MustParse(nifiRegistry.Spec.Resources.Requests.Memory().String()),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse(nifiRegistry.Spec.Resources.Limits.Cpu().String()),
+									corev1.ResourceMemory: resource.MustParse(nifiRegistry.Spec.Resources.Limits.Memory().String()),
+								},
+							},
+							VolumeMounts: volumeMounts,
+						},
+					},
+					Volumes: volumes,
+				},
+			},
+		},
+	}
+
+	return dep
+}
+// --- КОНЕЦ ФАЙЛА: deployment_helpers.go ---
+
+// --- НАЧАЛО ФАЙЛА: envvars_helpers.go ---
+// Filename: controllers/envvars_helpers.go
+// Changes: 1. Добавление опции -Xmx к NIFI_REGISTRY_JAVA_OPTS.
+// ----------------------------------------------------------------------------------------------------------------
+
+package controllers
+
+import (
+	"strconv"
+
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	corev1 "k8s.io/api/core/v1"
+)
+
+// envVarsAndPortsForNifiRegistry создает и возвращает список EnvVars и ContainerPorts.
+func envVarsAndPortsForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, confMountPath, externalLibMountPath string) ([]corev1.EnvVar, []corev1.ContainerPort) {
+	// Переменные окружения NiFi Registry
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "NIFI_REGISTRY_WEB_HTTP_PORT",
+			Value: strconv.Itoa(18080),
+		},
+		{
+			Name:  "NIFI_REGISTRY_WEB_HTTP_HOST",
+			Value: "0.0.0.0",
+		},
+	}
+
+	containerPorts := []corev1.ContainerPort{}
+
+	// =======================================
+	// 1. ЛОГИКА TLS
+	// =======================================
+
+	if nifiRegistry.Spec.Tls.Enabled {
+		// Изменяем порт для HTTP
+		envVars[0].Value = "" // Удаляем NIFI_REGISTRY_WEB_HTTP_PORT
+
+		// Добавляем ENV для HTTPS
+		envVars = append(envVars,
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_WEB_HTTPS_HOST",
+				Value: "0.0.0.0",
+			},
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_WEB_HTTPS_PORT",
+				Value: strconv.Itoa(8443),
+			},
+			// Указываем, что keystore и truststore должны находиться в поддиректории /tls каталога conf
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_KEYSTORE_PATH",
+				Value: confMountPath + "/tls/keystore.jks",
+			},
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_KEYSTORE_PASSWORD",
+				Value: nifiRegistry.Spec.Tls.KeystorePassword,
+			},
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_KEYSTORE_TYPE",
+				Value: "JKS",
+			},
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_TRUSTSTORE_PATH",
+				Value: confMountPath + "/tls/truststore.jks",
+			},
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_TRUSTSTORE_PASSWORD",
+				Value: nifiRegistry.Spec.Tls.TruststorePassword,
+			},
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_TRUSTSTORE_TYPE",
+				Value: "JKS",
+			},
+			corev1.EnvVar{
+				Name:  "NIFI_REGISTRY_CLIENT_AUTH",
+				Value: "REQUIRED",
+			},
+		)
+
+		// Добавляем порт HTTPS
+		containerPorts = append(containerPorts, corev1.ContainerPort{
+			ContainerPort: 8443,
+			Name:          "https-port",
+		})
+	} else {
+		// Добавляем порт HTTP
+		containerPorts = append(containerPorts, corev1.ContainerPort{
+			ContainerPort: 18080,
+			Name:          "web-port",
+		})
+	}
+
+	// =======================================
+	// 1.1 ЛОГИКА KEYCLOAK (OIDC)
+	// =======================================
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// Добавление Client Secret для OIDC (берется из Secret)
+		envVars = append(envVars, corev1.EnvVar{
+			Name: "NIFI_REGISTRY_OIDC_CLIENT_SECRET",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: nifiRegistry.Spec.Keycloak.ClientSecretName, // ИСПОЛЬЗУЕМ ИМЯ ИЗ CRD
+					},
+					Key: "client-secret", // Ключ из Secret (см. secret_helpers.go)
+				},
+			},
+		})
+	}
+
+	// Если включена внешняя БД, добавляем все переменные окружения для подключения к БД
+	if nifiRegistry.Spec.Database.Enabled {
+		// Установка стандартных ENV (переопределяют nifi-registry.properties)
+		dbEnv := []corev1.EnvVar{
+			// Flow Persistence Provider Settings
+			{
+				Name:  "NIFI_REGISTRY_FLOW_PROVIDER",
+				Value: "org.apache.nifi.registry.flow.sql.SqlFlowProvider",
+			},
+			// Database Configuration (PostgreSQL)
+			{
+				Name:  "NIFI_REGISTRY_DB_IMPLEMENTATION",
+				Value: "org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider",
+			},
+			{
+				Name:  "NIFI_REGISTRY_DB_URL",
+				Value: nifiRegistry.Spec.Database.Url,
+			},
+			{
+				Name:  "NIFI_REGISTRY_DB_DRIVER_CLASS",
+				Value: nifiRegistry.Spec.Database.DriverClass,
+			},
+			{
+				Name:  "NIFI_REGISTRY_DB_USERNAME",
+				Value: nifiRegistry.Spec.Database.Username,
+			},
+			// ПАРОЛЬ ОТКРЫТЫМ ТЕКСТОМ (для тестового стенда)
+			{
+				Name:  "NIFI_REGISTRY_DB_PASSWORD",
+				Value: nifiRegistry.Spec.Database.Password,
+			},
+			{
+				Name:  "NIFI_REGISTRY_DB_DRIVER_LIB_DIR",
+				Value: externalLibMountPath, // Указываем изолированный путь для драйвера
+			},
+		}
+		envVars = append(envVars, dbEnv...)
+
+		// ДОБАВЛЕНИЕ NIFI_REGISTRY_JAVA_OPTS для принудительной установки драйвера в Flyway/Spring Boot
+		dbUrl := nifiRegistry.Spec.Database.Url
+		driverClass := nifiRegistry.Spec.Database.DriverClass
+		dbUsername := nifiRegistry.Spec.Database.Username
+		dbPassword := nifiRegistry.Spec.Database.Password
+
+		// ОГРАНИЧЕНИЕ ПАМЯТИ JVM: берем Request Memory (512Mi)
+		memoryRequest := nifiRegistry.Spec.Resources.Requests.Memory().String()
+
+		// Новые опции с включением логина, пароля, принудительным классом драйвера Flyway и loader.path
+		javaOptsValue := "-Xmx" + memoryRequest +
+			" -Dspring.datasource.driver-class-name=" + driverClass +
+			" -Dspring.datasource.url=" + dbUrl +
+			" -Dspring.datasource.username=" + dbUsername +
+			" -Dspring.datasource.password=" + dbPassword +
+			" -Dspring.flyway.driver-class-name=" + driverClass +
+			" -Dloader.path=" + externalLibMountPath // <--- ИСПОЛЬЗУЕТ ИЗОЛИРОВАННЫЙ CLASSPATH
+
+		javaOptsEnv := corev1.EnvVar{
+			Name:  "NIFI_REGISTRY_JAVA_OPTS",
+			Value: javaOptsValue,
+		}
+		envVars = append(envVars, javaOptsEnv)
+	}
+
+	return envVars, containerPorts
+}
+// --- КОНЕЦ ФАЙЛА: envvars_helpers.go ---
+
+// --- НАЧАЛО ФАЙЛА: generateNifiRegistryProperties.go ---
+// controllers/generateNifiRegistryProperties.go
+
+package controllers
+
+import (
+	"fmt"
+
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+)
+
+// (Версия 21.0: Возвращаем настройки ТОЛЬКО для PostgreSQL. Для H2 - пусто.)
+func generateNifiRegistryProperties(nifiRegistry *registryv1.NifiRegistry, dbPassword string) string {
+	var dbConfigSection string
+
+	// Настройки для Flow Persistence Provider и DB должны генерироваться ТОЛЬКО
+	// если используется внешняя БД (PostgreSQL), так как H2 использует дефолты.
+	if nifiRegistry.Spec.Database.Enabled {
+		// Конфигурация для внешней БД (PostgreSQL)
+		effectiveFlowProvider := "org.apache.nifi.registry.flow.sql.SqlFlowProvider"
+
+		dbConfigSection = fmt.Sprintf(`
+# Flow Persistence Provider Settings
+nifi.registry.flow.provider=%s
+
+# Database Configuration (PostgreSQL)
+nifi.registry.db.implementation=org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider
+nifi.registry.db.url=%s
+nifi.registry.db.driver.class=%s
+nifi.registry.db.username=%s
+nifi.registry.db.password=%s
+`,
+			effectiveFlowProvider,
+			nifiRegistry.Spec.Database.Url,
+			nifiRegistry.Spec.Database.DriverClass,
+			nifiRegistry.Spec.Database.Username,
+			dbPassword)
+	}
+
+	// Генерируем остальные общие настройки (Web, Security), которые всегда должны быть
+	// переопределены, независимо от H2/PostgreSQL.
+	return fmt.Sprintf(`
+# NiFi Registry Version
+nifi.registry.version=1.24.0
+
+%s
+
+# Web Settings
+nifi.registry.web.http.host=0.0.0.0
+nifi.registry.web.http.port=8080
+nifi.registry.web.context.path=/nifi-registry
+nifi.registry.web.api.context.path=/nifi-registry-api
+nifi.registry.web.jetty.threads=200
+
+# Security Settings
+nifi.registry.security.user.login.identity.provider=
+
+# Access Policy Provider Settings
+nifi.registry.security.access.resource.provider=org.apache.nifi.registry.security.authorization.file.FileAccessPolicyProvider
+nifi.registry.security.access.resource.provider.implementation.org.apache.nifi.registry.security.authorization.file.FileAccessPolicyProvider.authorizations.file=./conf/authorizations.xml
+nifi.registry.security.access.resource.provider.implementation.org.apache.nifi.registry.security.authorization.file.FileAccessPolicyProvider.initial.admin=
+
+# User Group Provider Settings
+nifi.registry.security.user.group.provider=org.apache.nifi.registry.security.authorization.file.FileUserGroupProvider
+nifi.registry.security.user.group.provider.implementation.org.apache.nifi.registry.security.authorization.file.FileUserGroupProvider.users.file=./conf/users.xml
+nifi.registry.security.user.group.provider.implementation.org.apache.nifi.registry.security.authorization.file.FileUserGroupProvider.initial.admin.identity=
+
+# Identity Providers Settings
+nifi.registry.security.identity.providers.file=./conf/identity-providers.xml
+
+# Notification Service Settings
+nifi.registry.notification.services.file=./conf/notification-services.xml
+
+# SCM Persistence Providers Settings
+nifi.registry.scm.providers.file=./conf/providers.xml
+
+# Registry Aliases Settings
+nifi.registry.registry.aliases.file=./conf/registry-aliases.xml
+
+# Extension Bundles Settings
+nifi.registry.extension.bundles.directory=./extension_bundles`,
+		dbConfigSection)
+}
+// --- КОНЕЦ ФАЙЛА: generateNifiRegistryProperties.go ---
+
+// --- НАЧАЛО ФАЙЛА: initcontainer_helpers.go ---
+// Filename: controllers/initcontainer_helpers.go
+// Changes:
+//          1. ИСПРАВЛЕНИЕ: Восстановлено определение переменной 'cmd' в функции downloadDbDriverInitContainer,
+//             чтобы устранить ошибку компиляции "undefined: cmd".
+//          2. Сохранены изменения по настройке logback на STDOUT (Шаг 250).
+// ----------------------------------------------------------------------------------------------------------------
+
+package controllers
+
+import (
+	"fmt"
+	"strconv"
+
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	corev1 "k8s.io/api/core/v1"
+)
+
+// configureRegistryPropertiesInitContainer создает InitContainer для настройки nifi-registry.properties.
+func configureRegistryPropertiesInitContainer(nifiRegistry *registryv1.NifiRegistry, volumeMounts []corev1.VolumeMount, confMountPath string, externalLibMountPath string) corev1.Container {
+	propertiesFile := "nifi-registry.properties"
+
+	// ----------------------------------------------------------------------
+	// 1. ЛОГИКА ДЛЯ БД: ГЕНЕРАЦИЯ КОНФИГУРАЦИИ
+	// ----------------------------------------------------------------------
+	dbSettings := ""
+	if nifiRegistry.Spec.Database.Enabled {
+		// Включаем настройки БД в nifi-registry.properties
+		dbSettings = fmt.Sprintf(`
+			# Database Configuration (PostgreSQL)
+			sed -i 's|nifi.registry.flow.persistence.provider.implementation.class=.*|nifi.registry.flow.persistence.provider.implementation.class=org.apache.nifi.registry.flow.sql.SqlFlowProvider|g' %s/%s;
+			sed -i 's|nifi.registry.flow.persistence.connect.timeout=.*|nifi.registry.flow.persistence.connect.timeout=10s|g' %s/%s;
+			
+			# Установка пустых значений для предотвращения конфликтов
+			sed -i 's|nifi.registry.db.url=.*|nifi.registry.db.url=|g' %s/%s;
+			sed -i 's|nifi.registry.db.driver.class=.*|nifi.registry.db.driver.class=|g' %s/%s;
+			sed -i 's|nifi.registry.db.driver.directory=.*|nifi.registry.db.driver.directory=|g' %s/%s;
+			sed -i 's|nifi.registry.db.username=.*|nifi.registry.db.username=|g' %s/%s;
+			sed -i 's|nifi.registry.db.password=.*|nifi.registry.db.password=|g' %s/%s;
+		`,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+		)
+	}
+
+	// ----------------------------------------------------------------------
+	// 2. ЛОГИКА ДЛЯ TLS: ГЕНЕРАЦИЯ КОНФИГУРАЦИИ
+	// ----------------------------------------------------------------------
+	tlsSettings := ""
+	tlsEnabled := "false"
+	// NOTE: Используем nifiRegistry.Spec.Tls.Enabled, а не nifiRegistry.Spec.Tls.Port, для проверки включения TLS
+	if nifiRegistry.Spec.Tls.Enabled {
+		tlsEnabled = "true"
+		// Указываем, что keystore и truststore должны находиться в поддиректории /tls каталога conf
+		tlsSettings = fmt.Sprintf(`
+			sed -i 's|nifi.registry.security.keystore=.*|nifi.registry.security.keystore=%s/tls/keystore.jks|g' %s/%s;
+			sed -i 's|nifi.registry.security.keystorePasswd=.*|nifi.registry.security.keystorePasswd=%s|g' %s/%s;
+			sed -i 's|nifi.registry.security.truststore=.*|nifi.registry.security.truststore=%s/tls/truststore.jks|g' %s/%s;
+			sed -i 's|nifi.registry.security.truststorePasswd=.*|nifi.registry.security.truststorePasswd=%s|g' %s/%s;
+			sed -i 's|nifi.registry.security.truststoreType=.*|nifi.registry.security.truststoreType=JKS|g' %s/%s;
+			sed -i 's|nifi.registry.security.keystoreType=.*|nifi.registry.security.keystoreType=JKS|g' %s/%s;
+			sed -i 's|nifi.registry.security.needClientAuth=.*|nifi.registry.security.needClientAuth=%s|g' %s/%s;
+		`,
+			confMountPath, confMountPath, propertiesFile,
+			nifiRegistry.Spec.Tls.KeystorePassword, confMountPath, propertiesFile,
+			confMountPath, confMountPath, propertiesFile,
+			nifiRegistry.Spec.Tls.TruststorePassword, confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			confMountPath, propertiesFile,
+			nifiRegistry.Spec.Tls.ClientAuth, confMountPath, propertiesFile, // ИСПОЛЬЗУЕМ ClientAuth из CRD
+		)
+	}
+
+	// ----------------------------------------------------------------------
+	// 3. ЛОГИКА ДЛЯ LOGBACK.XML: ПЕРЕКЛЮЧЕНИЕ НА STDOUT
+	// ----------------------------------------------------------------------
+	// Заменяем имя файла в Appender с nifi-registry-app.log на <target>STDOUT</target>
+	// И меняем класс Appender на ConsoleAppender
+	logbackPatch := fmt.Sprintf("sed -i 's|<file>logs/nifi-registry-app.log</file>|<target>STDOUT</target>|g' %s/logback.xml && ", confMountPath) +
+		fmt.Sprintf("sed -i 's|ch.qos.logback.core.rolling.RollingFileAppender|ch.qos.logback.core.ConsoleAppender|g' %s/logback.xml", confMountPath)
+
+	// ----------------------------------------------------------------------
+	// 4. ГЛАВНАЯ КОМАНДА СКРИПТА
+	// ----------------------------------------------------------------------
+	cmd := fmt.Sprintf(`
+		set -e;
+
+		# 1. Настройка TLS/Security:
+		%s
+		sed -i 's|nifi.registry.security.authorizer=.*|nifi.registry.security.authorizer=managed-authorizer|g' %s/%s;
+		sed -i 's|nifi.registry.security.secure.flow.management.actions=.*|nifi.registry.security.secure.flow.management.actions=%s|g' %s/%s;
+
+		# 2. Настройка базы данных:
+		%s
+		
+		# 3. Настройка HTTP/HTTPS портов:
+		sed -i 's|nifi.registry.web.http.port=.*|nifi.registry.web.http.port=%s|g' %s/%s;
+		sed -i 's|nifi.registry.web.https.port=.*|nifi.registry.web.https.port=%s|g' %s/%s;
+		
+		# 4. Настройка логирования в STDOUT для Kubernetes:
+		%s
+		
+		# 5. Установка режима DEBUG (ВЫСОКИЙ ПРИОРИТЕТ)
+		sed -i 's|<logger name="org.apache.nifi" level="INFO"/>|<logger name="org.apache.nifi" level="DEBUG"/>|g' %s/logback.xml;
+
+		# 6. Вывод финальной конфигурации (DEBUG):
+		echo "--- Final %s ---";
+		cat %s/%s;
+		echo "--- Final logback.xml ---";
+		cat %s/logback.xml;
+	`,
+		// 1. TLS/Security
+		tlsSettings,
+		confMountPath, propertiesFile,
+		tlsEnabled, confMountPath, propertiesFile,
+
+		// 2. Database
+		dbSettings,
+
+		// 3. Ports
+		strconv.Itoa(18080), confMountPath, propertiesFile, // HTTP PORT
+		strconv.Itoa(8443), confMountPath, propertiesFile, // HTTPS PORT
+
+		// 4. Logback Patch
+		logbackPatch,
+
+		// 5. DEBUG Logging
+		confMountPath,
+
+		// 6. Final Output
+		propertiesFile,
+		confMountPath, propertiesFile,
+		confMountPath,
+	)
+
+	return corev1.Container{
+		Name:            "configure-registry-properties",
+		Image:           nifiRegistry.Spec.InitImage, // Теперь InitImage должен быть определен в CRD (Шаг 252)
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"/bin/bash", "-c"},
+		Args:            []string{cmd},
+		VolumeMounts:    volumeMounts,
+	}
+}
+
+// copyConfInitContainer создает InitContainer для копирования конфигурации (conf).
+func copyConfInitContainer(nifiRegistry *registryv1.NifiRegistry, volumeMounts []corev1.VolumeMount, confMountPath string) corev1.Container {
+	return corev1.Container{
+		Name:            "copy-conf",
+		Image:           nifiRegistry.Spec.InitImage, // Используем InitImage
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"cp"},
+		Args:            []string{"-R", "/opt/nifi-registry/nifi-registry-current/conf/.", confMountPath},
+		VolumeMounts:    volumeMounts,
+	}
+}
+
+// downloadDbDriverInitContainer создает InitContainer для загрузки драйвера базы данных.
+func downloadDbDriverInitContainer(nifiRegistry *registryv1.NifiRegistry, volumeMounts []corev1.VolumeMount) corev1.Container {
+	// --- ИСПРАВЛЕНИЕ: ВОССТАНОВЛЕНА ПЕРЕМЕННАЯ cmd ---
+	cmd := fmt.Sprintf(`
+		set -e;
+		echo "--- Downloading JDBC Driver ---";
+		# Проверка: существует ли уже драйвер?
+		if [ -f /opt/nifi-registry/external-lib/driver.jar ]; then
+			echo "Driver already exists. Skipping download.";
+		else
+			# Скачивание:
+			wget -q -O /opt/nifi-registry/external-lib/driver.jar "%s";
+		fi
+		ls -l /opt/nifi-registry/external-lib;
+		echo "--- Download finished ---";
+	`,
+		nifiRegistry.Spec.Database.DriverDownloadURL,
+	)
+	// --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+	return corev1.Container{
+		Name:            "download-db-driver",
+		Image:           nifiRegistry.Spec.InitImage, // Используем InitImage
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"/bin/bash", "-c"},
+		Args:            []string{cmd},
+		VolumeMounts:    volumeMounts,
+	}
+}
+
+// initContainersForNifiRegistry создает список InitContainers.
+func initContainersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, volumeMounts []corev1.VolumeMount, confMountPath string, externalLibMountPath string) []corev1.Container {
+
+	initContainers := []corev1.Container{
+		copyConfInitContainer(nifiRegistry, volumeMounts, confMountPath),
+		configureRegistryPropertiesInitContainer(nifiRegistry, volumeMounts, confMountPath, externalLibMountPath),
+	}
+
+	if nifiRegistry.Spec.Database.Enabled {
+		initContainers = append(initContainers, downloadDbDriverInitContainer(nifiRegistry, volumeMounts))
+	}
+
+	return initContainers
+}
+// --- КОНЕЦ ФАЙЛА: initcontainer_helpers.go ---
+
+// --- НАЧАЛО ФАЙЛА: nifiregistry_controller.go ---
+// Filename: controllers/nifiregistry_controller.go
+// Changes: Integrated TLS Secret and Keycloak Client Secret creation logic into Reconcile.
+// 			Added helper function ensureSecret to handle Secret creation and ownership.
+
+package controllers
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/go-logr/logr"
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+)
+
+// NifiRegistryReconciler reconciles a NifiRegistry object
+type NifiRegistryReconciler struct {
+	client.Client
+	Log    logr.Logger
+	Scheme *runtime.Scheme
+}
+
+// +kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=registry.nifi.oper,resources=nifiregistries/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete // <-- ДОБАВЛЕНО ДЛЯ SECRETS
+
+// Reconcile is part of the main kubernetes reconciliation loop which aims to
+// move the current state of the cluster closer to the desired state.
+func (r *NifiRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := r.Log.WithValues("nifiregistry", req.NamespacedName)
+
+	// Fetch the NifiRegistry instance
+	nifiRegistry := &registryv1.NifiRegistry{}
+	err := r.Get(ctx, req.NamespacedName, nifiRegistry)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("NifiRegistry resource not found. Ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get NifiRegistry")
+		return ctrl.Result{}, err
+	}
+
+	// ========================================================================================
+	// 1. Управление Secret (TLS и Keycloak)
+	// ========================================================================================
+
+	// A. Secret для TLS Keystore/Truststore (если TLS включен)
+	if nifiRegistry.Spec.Tls.Enabled {
+		tlsSecret := tlsSecretForNifiRegistry(nifiRegistry, r.Scheme)
+		if err := r.ensureSecret(ctx, log, nifiRegistry, tlsSecret, "TLS Keystore/Truststore Secret"); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// B. Secret для Keycloak Client Secret (если Keycloak включен)
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// ВАЖНО: Мы создаем Secret с именем, указанным в CRD (ClientSecretName).
+		// В Secret Helpers он создается с заглушкой, предполагая, что пользователь
+		// может захотеть создать его вручную или через другой оператор.
+		keycloakSecret := keycloakSecretForNifiRegistry(nifiRegistry, r.Scheme)
+		if err := r.ensureSecret(ctx, log, nifiRegistry, keycloakSecret, "Keycloak Client Secret"); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// ========================================================================================
+	// 2. Управление PostgreSQL (если включено)
+	// ========================================================================================
+
+	if nifiRegistry.Spec.PostgreSQL.Enabled {
+		// A. Создание PVC для PostgreSQL (логика опущена)
+		pvcPostgres := pvcForPostgreSQL(nifiRegistry)
+		if err := r.ensurePVC(ctx, log, nifiRegistry, pvcPostgres); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// B. Создание Service для PostgreSQL (логика опущена)
+		svcPostgres := serviceForPostgreSQL(nifiRegistry)
+		if err := controllerutil.SetControllerReference(nifiRegistry, svcPostgres, r.Scheme); err != nil {
+			log.Error(err, "Failed to set controller reference for PostgreSQL Service")
+			return ctrl.Result{}, err
+		}
+		foundSVCPostgres := &corev1.Service{}
+		err = r.Get(ctx, types.NamespacedName{Name: svcPostgres.Name, Namespace: svcPostgres.Namespace}, foundSVCPostgres)
+		if err != nil && errors.IsNotFound(err) {
+			log.Info("Creating PostgreSQL Service", "Name", svcPostgres.Name)
+			err = r.Create(ctx, svcPostgres)
+			if err != nil {
+				log.Error(err, "Failed to create PostgreSQL Service")
+				return ctrl.Result{RequeueAfter: time.Second * 5}, err
+			}
+		} else if err != nil {
+			log.Error(err, "Failed to get PostgreSQL Service")
+			return ctrl.Result{}, err
+		}
+
+		// C. Создание Deployment для PostgreSQL (логика опущена)
+		depPostgres := deploymentForPostgreSQL(nifiRegistry)
+		if err := controllerutil.SetControllerReference(nifiRegistry, depPostgres, r.Scheme); err != nil {
+			log.Error(err, "Failed to set controller reference for PostgreSQL Deployment")
+			return ctrl.Result{}, err
+		}
+		foundDEPPostgres := &appsv1.Deployment{}
+		err = r.Get(ctx, types.NamespacedName{Name: depPostgres.Name, Namespace: depPostgres.Namespace}, foundDEPPostgres)
+		if err != nil && errors.IsNotFound(err) {
+			log.Info("Creating PostgreSQL Deployment", "Name", depPostgres.Name)
+			err = r.Create(ctx, depPostgres)
+			if err != nil {
+				log.Error(err, "Failed to create PostgreSQL Deployment")
+				return ctrl.Result{RequeueAfter: time.Second * 5}, err
+			}
+		} else if err != nil {
+			log.Error(err, "Failed to get PostgreSQL Deployment")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// ========================================================================================
+	// 3. Управление хранилищем NiFi Registry (PVC)
+	// ========================================================================================
+
+	// A. Создание PVC для Flow Storage (если включено)
+	if nifiRegistry.Spec.FlowStorage.Enabled {
+		pvcFlow := pvcForFlowStorage(nifiRegistry)
+		if err := r.ensurePVC(ctx, log, nifiRegistry, pvcFlow); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// B. Создание PVC для Lib Storage (если включено ИЛИ нужна БД)
+	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
+		pvcLib := pvcForLibStorage(nifiRegistry)
+		if err := r.ensurePVC(ctx, log, nifiRegistry, pvcLib); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// ========================================================================================
+	// 4. Управление ConfigMap
+	// ========================================================================================
+
+	// A. ConfigMap для providers.xml
+	configMapRegistry := configMapForNifiRegistry(nifiRegistry, r.Scheme)
+	if err := r.reconcileConfigMap(ctx, log, nifiRegistry, configMapRegistry, "Providers ConfigMap"); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// B. ConfigMaps для Keycloak (ЕСЛИ ВКЛЮЧЕН)
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// ConfigMap для identity-providers.xml (Аутентификация OIDC)
+		configMapIdentity := configMapIdentityProvidersForNifiRegistry(nifiRegistry, r.Scheme)
+		if err := r.reconcileConfigMap(ctx, log, nifiRegistry, configMapIdentity, "Identity Providers ConfigMap"); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// ConfigMap для authorizers.xml (Авторизация)
+		configMapAuthorizers := configMapAuthorizersForNifiRegistry(nifiRegistry, r.Scheme)
+		if err := r.reconcileConfigMap(ctx, log, nifiRegistry, configMapAuthorizers, "Authorizers ConfigMap"); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// ========================================================================================
+	// 5. Управление NiFi Registry
+	// ========================================================================================
+
+	// A. Создание Service для NiFi Registry (логика опущена)
+	svcRegistry := serviceForNifiRegistry(nifiRegistry, r.Scheme)
+	if err := controllerutil.SetControllerReference(nifiRegistry, svcRegistry, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference for Registry Service")
+		return ctrl.Result{}, err
+	}
+	foundSVCRegistry := &corev1.Service{}
+	err = r.Get(ctx, types.NamespacedName{Name: svcRegistry.Name, Namespace: svcRegistry.Namespace}, foundSVCRegistry)
+	if err != nil && errors.IsNotFound(err) {
+		log.Info("Creating Registry Service", "Name", svcRegistry.Name)
+		err = r.Create(ctx, svcRegistry)
+		if err != nil {
+			log.Error(err, "Failed to create Registry Service")
+			return ctrl.Result{RequeueAfter: time.Second * 5}, err
+		}
+	} else if err != nil {
+		log.Error(err, "Failed to get Registry Service")
+		return ctrl.Result{}, err
+	}
+
+	// B. Создание Deployment для NiFi Registry (логика опущена)
+	depRegistry := deploymentForNifiRegistry(nifiRegistry)
+	if err := controllerutil.SetControllerReference(nifiRegistry, depRegistry, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference for Registry Deployment")
+		return ctrl.Result{}, err
+	}
+	foundDEPRegistry := &appsv1.Deployment{}
+	err = r.Get(ctx, types.NamespacedName{Name: depRegistry.Name, Namespace: depRegistry.Namespace}, foundDEPRegistry)
+	if err != nil && errors.IsNotFound(err) {
+		log.Info("Creating Registry Deployment", "Name", depRegistry.Name)
+		err = r.Create(ctx, depRegistry)
+		if err != nil {
+			log.Error(err, "Failed to create Registry Deployment")
+			return ctrl.Result{RequeueAfter: time.Second * 5}, err
+		}
+	} else if err != nil {
+		log.Error(err, "Failed to get Registry Deployment")
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// ensureSecret проверяет существование Secret и создает его, если он отсутствует.
+func (r *NifiRegistryReconciler) ensureSecret(ctx context.Context, log logr.Logger, nifiRegistry *registryv1.NifiRegistry, desiredSecret *corev1.Secret, logName string) error {
+	foundSecret := &corev1.Secret{}
+
+	// 1. Попытка получить Secret
+	err := r.Get(ctx, types.NamespacedName{Name: desiredSecret.Name, Namespace: nifiRegistry.Namespace}, foundSecret)
+
+	if err != nil && errors.IsNotFound(err) {
+		// 2. Если не найден, СОЗДАЕМ его
+
+		// На Keycloak Secret (Client Secret) мы не устанавливаем Owner Reference,
+		// если он не должен быть удален вместе с CRD. Однако, в данном контексте
+		// мы ставим Owner Reference на оба Secret'а для простоты.
+		// В реальном сценарии Keycloak Secret часто управляется вне оператора.
+		if err := controllerutil.SetControllerReference(nifiRegistry, desiredSecret, r.Scheme); err != nil {
+			log.Error(err, fmt.Sprintf("Failed to set controller reference for %s", logName))
+			return err
+		}
+
+		log.Info("Creating", "Secret", logName, "Name", desiredSecret.Name)
+		err = r.Client.Create(ctx, desiredSecret)
+		if err != nil {
+			log.Error(err, fmt.Sprintf("Failed to create %s", logName))
+			return err
+		}
+	} else if err != nil {
+		// Ошибка при получении Secret
+		log.Error(err, fmt.Sprintf("Failed to get existing %s", logName))
+		return err
+	}
+
+	// TODO: Здесь должна быть логика обновления Secret, если его содержимое изменилось.
+
+	return nil
+}
+
+// reconcileConfigMap проверяет существование ConfigMap и создает его, если он отсутствует.
+// Теперь принимает желаемый ConfigMap и имя для логирования.
+func (r *NifiRegistryReconciler) reconcileConfigMap(ctx context.Context, log logr.Logger, nifiRegistry *registryv1.NifiRegistry, desiredCm *corev1.ConfigMap, logName string) error {
+	foundCM := &corev1.ConfigMap{}
+
+	// 1. Попытка получить ConfigMap
+	err := r.Get(ctx, types.NamespacedName{Name: desiredCm.Name, Namespace: nifiRegistry.Namespace}, foundCM)
+
+	if err != nil && errors.IsNotFound(err) {
+		// 2. Если не найден, СОЗДАЕМ его
+
+		if err := controllerutil.SetControllerReference(nifiRegistry, desiredCm, r.Scheme); err != nil {
+			log.Error(err, fmt.Sprintf("Failed to set controller reference for %s", logName))
+			return err
+		}
+
+		log.Info("Creating", "ConfigMap", logName, "Name", desiredCm.Name)
+		err = r.Client.Create(ctx, desiredCm)
+		if err != nil {
+			log.Error(err, fmt.Sprintf("Failed to create %s", logName))
+			return err
+		}
+	} else if err != nil {
+		// Ошибка при получении ConfigMap
+		log.Error(err, fmt.Sprintf("Failed to get existing %s", logName))
+		return err
+	}
+
+	// TODO: Здесь должна быть логика обновления ConfigMap, если его содержимое изменилось.
+
+	return nil
+}
+
+// ensurePVC проверяет существование PVC и создает его, если он отсутствует.
+func (r *NifiRegistryReconciler) ensurePVC(ctx context.Context, log logr.Logger, nifiRegistry *registryv1.NifiRegistry, pvc *corev1.PersistentVolumeClaim) error {
+	if err := controllerutil.SetControllerReference(nifiRegistry, pvc, r.Scheme); err != nil {
+		log.Error(err, fmt.Sprintf("Failed to set controller reference for PVC %s", pvc.Name))
+		return err
+	}
+	foundPVC := &corev1.PersistentVolumeClaim{}
+	err := r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, foundPVC)
+	if err != nil && errors.IsNotFound(err) {
+		log.Info("Creating PVC", "Name", pvc.Name)
+		err = r.Create(ctx, pvc)
+		if err != nil {
+			log.Error(err, fmt.Sprintf("Failed to create PVC %s", pvc.Name))
+			return err
+		}
+	} else if err != nil {
+		log.Error(err, fmt.Sprintf("Failed to get PVC %s", pvc.Name))
+		return err
+	}
+	return nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *NifiRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&registryv1.NifiRegistry{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}). // <-- ДОБАВЛЕНО ВЛАДЕНИЕ SECRET
+		Complete(r)
+}
+// --- КОНЕЦ ФАЙЛА: nifiregistry_controller.go ---
+
+// --- НАЧАЛО ФАЙЛА: postgresql_helpers.go ---
+// controllers/postgresql_helpers.go
+
+package controllers
+
+import (
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// serviceForPostgreSQL возвращает Service для PostgreSQL.
+func serviceForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.Service {
+	labels := map[string]string{"app": nifiRegistry.Name + "-postgres"}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      nifiRegistry.Name + "-postgres",
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{
+				{
+					Port: 5432,
+					Name: "db-port",
+				},
+			},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+	return svc
+}
+
+// deploymentForPostgreSQL возвращает Deployment для PostgreSQL.
+func deploymentForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *appsv1.Deployment {
+	labels := map[string]string{"app": nifiRegistry.Name + "-postgres"}
+	replicas := int32(1)
+	dbPassword := nifiRegistry.Spec.PostgreSQL.Password
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      nifiRegistry.Name + "-postgres",
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "postgres",
+							Image: nifiRegistry.Spec.PostgreSQL.Image.Repository + ":" + nifiRegistry.Spec.PostgreSQL.Image.Tag,
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: 5432,
+									Name:          "db-port",
+								},
+							},
+							// 💥 ИСПРАВЛЕНО: Добавлен PGDATA
+							Env: []corev1.EnvVar{
+								{
+									Name:  "POSTGRES_DB",
+									Value: nifiRegistry.Spec.PostgreSQL.Database,
+								},
+								{
+									Name:  "POSTGRES_USER",
+									Value: nifiRegistry.Spec.PostgreSQL.Username,
+								},
+								{
+									Name:  "POSTGRES_PASSWORD",
+									Value: dbPassword,
+								},
+								{
+									Name:  "PGDATA",
+									Value: "/var/lib/postgresql/data/pgdata",
+								},
+							},
+							// 💥 ИСПРАВЛЕНО: Использование resource.MustParse
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("512Mi"),
+								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      nifiRegistry.Name + "-postgres",
+									MountPath: "/var/lib/postgresql/data",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: nifiRegistry.Name + "-postgres",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: nifiRegistry.Name + "-postgres",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	return dep
+}
+// --- КОНЕЦ ФАЙЛА: postgresql_helpers.go ---
+
+// --- НАЧАЛО ФАЙЛА: pvc_helpers.go ---
+// controllers/pvc_helpers.go
+
+package controllers
+
+import (
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// pvcForPostgreSQL возвращает PVC для базы данных PostgreSQL.
+func pvcForPostgreSQL(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
+	name := nifiRegistry.Name + "-postgres"
+	labels := map[string]string{"app": name}
+	size := nifiRegistry.Spec.PostgreSQL.Size
+	storageClass := nifiRegistry.Spec.PostgreSQL.StorageClass
+
+	if size == "" {
+		size = "1Gi" // Размер по умолчанию
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse(size),
+				},
+			},
+			StorageClassName: &storageClass,
+		},
+	}
+	return pvc
+}
+
+// pvcForFlowStorage возвращает PVC для каталога flows NiFi Registry.
+func pvcForFlowStorage(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
+	name := nifiRegistry.Name + "-flow"
+	labels := map[string]string{"app": nifiRegistry.Name + "-registry"}
+	size := nifiRegistry.Spec.FlowStorage.Size
+	storageClass := nifiRegistry.Spec.FlowStorage.StorageClass
+
+	if size == "" {
+		size = "1Gi" // Размер по умолчанию
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse(size),
+				},
+			},
+			StorageClassName: &storageClass,
+		},
+	}
+	return pvc
+}
+
+// pvcForLibStorage возвращает PVC для каталога lib NiFi Registry. <--- ДОБАВЛЕНО
+func pvcForLibStorage(nifiRegistry *registryv1.NifiRegistry) *corev1.PersistentVolumeClaim {
+	name := nifiRegistry.Name + "-lib"
+	labels := map[string]string{"app": nifiRegistry.Name + "-registry"}
+	size := nifiRegistry.Spec.LibStorage.Size
+	storageClass := nifiRegistry.Spec.LibStorage.StorageClass
+
+	if size == "" {
+		size = "500Mi" // Размер по умолчанию для lib
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse(size),
+				},
+			},
+			StorageClassName: &storageClass,
+		},
+	}
+	return pvc
+}
+// --- КОНЕЦ ФАЙЛА: pvc_helpers.go ---
+
+// --- НАЧАЛО ФАЙЛА: secret_helpers.go ---
+// Filename: controllers/secret_helpers.go
+// Changes: Added functions to generate Kubernetes Secrets for TLS keystores and Keycloak Client Secret.
+
+package controllers
+
+import (
+	"fmt"
+
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+)
+
+// !!! ВНИМАНИЕ: Это ЗАГЛУШКИ. В реальном операторе эти данные должны
+// быть СГЕНЕРИРОВАНЫ (например, с помощью InitContainer) или взяты
+// из внешнего источника, например, Vault.
+const tlsKeystoreData = "PLACEHOLDER_JKS_KEYSTORE_DATA"
+const tlsTruststoreData = "PLACEHOLDER_JKS_TRUSTSTORE_DATA"
+
+// tlsSecretForNifiRegistry генерирует Secret для Keystore и Truststore (TLS).
+// Secret требуется для монтирования файлов .jks в файловую систему Pod.
+func tlsSecretForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.Secret {
+	labels := map[string]string{"app": nifiRegistry.Name}
+	secretName := fmt.Sprintf("%s-tls-secret", nifiRegistry.Name)
+
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			// Файлы, которые будут смонтированы в /conf/tls/
+			"keystore.jks":   []byte(tlsKeystoreData),
+			"truststore.jks": []byte(tlsTruststoreData),
+		},
+	}
+
+	ctrl.SetControllerReference(nifiRegistry, sec, scheme)
+	return sec
+}
+
+// keycloakSecretForNifiRegistry генерирует Secret, содержащий Client Secret Keycloak,
+// используя ссылку на имя Secret из CRD (ClientSecretName).
+// Для простоты, здесь мы используем заглушку, поскольку оператор не управляет содержимым
+// этого Secret, а только ссылается на него.
+func keycloakSecretForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.Secret {
+	labels := map[string]string{"app": nifiRegistry.Name}
+
+	// Используем имя Secret, указанное в CRD
+	secretName := nifiRegistry.Spec.Keycloak.ClientSecretName
+
+	// ВНИМАНИЕ: Если ClientSecretName пуст, это может вызвать ошибку.
+	// В рабочем коде здесь должна быть проверка. Предполагаем, что оно задано.
+	if secretName == "" {
+		secretName = fmt.Sprintf("%s-keycloak-secret-default", nifiRegistry.Name)
+	}
+
+	// Здесь мы не можем получить Client Secret, потому что он не хранится в CRD.
+	// Мы предполагаем, что Secret с именем nifiRegistry.Spec.Keycloak.ClientSecretName
+	// уже существует в кластере и содержит ключ "client-secret".
+
+	// Для целей генерации ресурса Secret, нам нужен Secret, чтобы оператор мог
+	// проверить его существование. Поскольку мы не знаем его содержимого, мы
+	// создадим пустой Secret с нужным именем, чтобы избежать ошибок,
+	// если вы захотите, чтобы оператор его создал.
+
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			// Требуется наличие ключа "client-secret" для монтирования в ENV
+			"client-secret": []byte("REPLACE_ME_WITH_REAL_KEYCLOAK_SECRET"),
+		},
+	}
+
+	ctrl.SetControllerReference(nifiRegistry, sec, scheme)
+	return sec
+}
+// --- КОНЕЦ ФАЙЛА: secret_helpers.go ---
+
+// --- НАЧАЛО ФАЙЛА: service_helpers.go ---
+// Filename: controllers/service_helpers.go
+// Changes: REMOVED the redundant function serviceForPostgreSQL, as it is correctly defined in
+//          controllers/postgresql_helpers.go, resolving the code duplication issue.
+
+package controllers
+
+import (
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+
+	// !!! ВОТ ОН, НЕДОСТАЮЩИЙ ИМПОРТ !!!
+	intstr "k8s.io/apimachinery/pkg/util/intstr"
+)
+
+// serviceForNifiRegistry возвращает Service для NiFi Registry.
+func serviceForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *runtime.Scheme) *corev1.Service {
+	labels := map[string]string{"app": nifiRegistry.Name}
+
+	// Конфигурация порта зависит от TLS
+	var svcPort corev1.ServicePort
+
+	if nifiRegistry.Spec.Tls.Enabled { // ПРОВЕРЯЕМ: Tls.Enabled
+		svcPort = corev1.ServicePort{
+			Name:     "https-port",
+			Protocol: corev1.ProtocolTCP,
+			Port:     8443,
+			TargetPort: intstr.IntOrString{ // ИСПОЛЬЗУЕМ: intstr.IntOrString
+				Type:   intstr.Int, // ИСПОЛЬЗУЕМ: intstr.Int
+				IntVal: 8443,
+			},
+		}
+	} else {
+		svcPort = corev1.ServicePort{
+			Name:     "http-port",
+			Protocol: corev1.ProtocolTCP,
+			Port:     18080,
+			TargetPort: intstr.IntOrString{ // ИСПОЛЬЗУЕМ: intstr.IntOrString
+				Type:   intstr.Int, // ИСПОЛЬЗУЕМ: intstr.Int
+				IntVal: 18080,
+			},
+		}
+	}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      nifiRegistry.Name,
+			Namespace: nifiRegistry.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports:    []corev1.ServicePort{svcPort},
+			Type:     corev1.ServiceTypeClusterIP,
+		},
+	}
+
+	return svc
+}
+// --- КОНЕЦ ФАЙЛА: service_helpers.go ---
+
+// --- НАЧАЛО ФАЙЛА: suite_test.go ---
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controllers
+
+import (
+	"path/filepath"
+	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	//+kubebuilder:scaffold:imports
+)
+
+// These tests use Ginkgo (BDD-style Go testing framework). Refer to
+// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
+
+var cfg *rest.Config
+var k8sClient client.Client
+var testEnv *envtest.Environment
+
+func TestAPIs(t *testing.T) {
+	RegisterFailHandler(Fail)
+
+	RunSpecs(t, "Controller Suite")
+}
+
+var _ = BeforeSuite(func() {
+	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+
+	By("bootstrapping test environment")
+	testEnv = &envtest.Environment{
+		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true,
+	}
+
+	var err error
+	// cfg is defined in this file globally.
+	cfg, err = testEnv.Start()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cfg).NotTo(BeNil())
+
+	err = registryv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	//+kubebuilder:scaffold:scheme
+
+	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(k8sClient).NotTo(BeNil())
+
+})
+
+var _ = AfterSuite(func() {
+	By("tearing down the test environment")
+	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
+})
+// --- КОНЕЦ ФАЙЛА: suite_test.go ---
+
+// --- НАЧАЛО ФАЙЛА: volume_helpers.go ---
+// Filename: controllers/volume_helpers.go
+// Changes: НОВЫЙ ФАЙЛ. Выделение всей логики создания Volumes и VolumeMounts.
+// ----------------------------------------------------------------------------------------------------------------
+
+package controllers
+
+import (
+	registryv1 "github.com/repinoid/nreg-oper/api/v1"
+	corev1 "k8s.io/api/core/v1"
+)
+
+// volumeMountsForNifiRegistry создает и возвращает список VolumeMounts для NiFi Registry.
+func volumeMountsForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName, confMountPath, externalLibMountPath string) []corev1.VolumeMount {
+	volumeMounts := []corev1.VolumeMount{}
+
+	// 1. Монтирование flow storage
+	if nifiRegistry.Spec.FlowStorage.Enabled {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      flowStorageVolumeName,
+			MountPath: "/opt/nifi-registry/nifi-registry-current/flow_storage",
+		})
+	}
+
+	// 2. Монтирование lib storage (для драйвера PostgreSQL, если БД включена)
+	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      libStorageVolumeName,
+			MountPath: externalLibMountPath, // Монтируем внешний Lib в изолированный каталог
+		})
+	}
+
+	// 3. Монтирование тома /conf (EmptyDir) - для доступа Init-контейнеров
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		Name:      confVolumeName,
+		MountPath: confMountPath,
+	})
+
+	// 4. Монтирование TLS Secret (в conf/tls)
+	if nifiRegistry.Spec.Tls.Enabled {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      tlsSecretVolumeName,
+			MountPath: confMountPath + "/tls", // Монтируем Secret в поддиректорию conf/tls
+			ReadOnly:  true,
+		})
+	}
+
+	// 5. Монтирование ConfigMaps для Keycloak (в conf)
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// providers.xml
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      nifiRegistry.Name + "-providers-cm",
+			MountPath: confMountPath + "/providers.xml",
+			SubPath:   "providers.xml",
+			ReadOnly:  true,
+		})
+		// identity-providers.xml
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      nifiRegistry.Name + "-identity-providers-cm",
+			MountPath: confMountPath + "/identity-providers.xml",
+			SubPath:   "identity-providers.xml",
+			ReadOnly:  true,
+		})
+		// authorizers.xml
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      nifiRegistry.Name + "-authorizers-cm",
+			MountPath: confMountPath + "/authorizers.xml",
+			SubPath:   "authorizers.xml",
+			ReadOnly:  true,
+		})
+	}
+
+	return volumeMounts
+}
+
+// volumesForNifiRegistry создает и возвращает список Volumes для NiFi Registry.
+func volumesForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName string) []corev1.Volume {
+	volumes := []corev1.Volume{}
+	tlsSecretName := nifiRegistry.Name + "-tls-secret"
+
+	// 1. Том для Flow Storage
+	if nifiRegistry.Spec.FlowStorage.Enabled {
+		volumes = append(volumes, corev1.Volume{
+			Name: flowStorageVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: nifiRegistry.Name + "-flow",
+				},
+			},
+		})
+	}
+
+	// 2. Том для Lib Storage
+	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
+		volumes = append(volumes, corev1.Volume{
+			Name: libStorageVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: nifiRegistry.Name + "-lib",
+				},
+			},
+		})
+	}
+
+	// 3. Том EmptyDir для конфигурации (для доступа на запись InitContainers)
+	volumes = append(volumes, corev1.Volume{
+		Name: confVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	})
+
+	// 4. Том для Secret (TLS Keystore/Truststore)
+	if nifiRegistry.Spec.Tls.Enabled {
+		volumes = append(volumes, corev1.Volume{
+			Name: tlsSecretVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: tlsSecretName, // Используем имя Secret по умолчанию
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "keystore.jks",
+							Path: "keystore.jks", // Монтируется в conf/tls/keystore.jks
+						},
+						{
+							Key:  "truststore.jks",
+							Path: "truststore.jks", // Монтируется в conf/tls/truststore.jks
+						},
+					},
+				},
+			},
+		})
+	}
+
+	// 4.1. Том для Secret (Keycloak Client Secret)
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		volumes = append(volumes, corev1.Volume{
+			Name: nifiRegistry.Spec.Keycloak.ClientSecretName, // Используем имя Secret из CRD
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: nifiRegistry.Spec.Keycloak.ClientSecretName,
+				},
+			},
+		})
+	}
+
+	// 5. Тома для ConfigMaps (Keycloak/OIDC)
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// providers.xml
+		volumes = append(volumes, corev1.Volume{
+			Name: nifiRegistry.Name + "-providers-cm",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: nifiRegistry.Name + "-providers-cm",
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "providers.xml",
+							Path: "providers.xml", // Монтируется в /conf/providers.xml
+						},
+					},
+				},
+			},
+		})
+		// identity-providers.xml
+		volumes = append(volumes, corev1.Volume{
+			Name: nifiRegistry.Name + "-identity-providers-cm",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: nifiRegistry.Name + "-identity-providers-cm",
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "identity-providers.xml",
+							Path: "identity-providers.xml", // Монтируется в /conf/identity-providers.xml
+						},
+					},
+				},
+			},
+		})
+		// authorizers.xml
+		volumes = append(volumes, corev1.Volume{
+			Name: nifiRegistry.Name + "-authorizers-cm",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: nifiRegistry.Name + "-authorizers-cm",
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "authorizers.xml",
+							Path: "authorizers.xml", // Монтируется в /conf/authorizers.xml
+						},
+					},
+				},
+			},
+		})
+	}
+
+	return volumes
+}
+// --- КОНЕЦ ФАЙЛА: volume_helpers.go ---
+

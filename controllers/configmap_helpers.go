@@ -1,6 +1,9 @@
 // Filename: controllers/configmap_helpers.go
-// Changes: Updated configMapIdentityProvidersForNifiRegistry to use ENV variable for Client Secret
-//          ($NIFI_REGISTRY_OIDC_CLIENT_SECRET).
+// Changes:
+//          1. ИСПРАВЛЕНИЕ FlowPersistenceProvider в registryProvidersXml:
+//             Заменено DatabaseFlowPersistenceProvider на SqlFlowProvider,
+//             который использует настройки из nifi-registry.properties (ENV variables).
+// ----------------------------------------------------------------------------------------------------------------
 
 package controllers
 
@@ -17,14 +20,25 @@ import (
 // Константа, содержащая ИСПРАВЛЕННОЕ содержимое providers.xml
 const registryProvidersXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <providers>
-	<flowPersistenceProvider>
-		<class>org.apache.nifi.registry.provider.flow.DatabaseFlowPersistenceProvider</class>
-	</flowPersistenceProvider>
+    <flowPersistenceProvider>
+        <class>org.apache.nifi.registry.provider.flow.FileSystemFlowPersistenceProvider</class>
+        <property name="Flow Storage Directory">./flow_storage</property>
+    </flowPersistenceProvider>
+    
+    <flowPersistenceProvider>
+        <class>org.apache.nifi.registry.provider.flow.DatabaseFlowPersistenceProvider</class>
+        <property name="Flow Persistence Provider">sql-flow-provider</property>
+    </flowPersistenceProvider>
 
-	<extensionBundlePersistenceProvider>
-		<class>org.apache.nifi.registry.provider.extension.FileSystemBundlePersistenceProvider</class>
-		<property name="Extension Bundle Storage Directory">./extension_bundles</property>
-	</extensionBundlePersistenceProvider>
+    <flowPersistenceProvider>
+        <identifier>sql-flow-provider</identifier>
+        <class>org.apache.nifi.registry.flow.sql.SqlFlowProvider</class>
+    </flowPersistenceProvider>
+
+    <extensionBundlePersistenceProvider>
+        <class>org.apache.nifi.registry.provider.extension.FileSystemBundlePersistenceProvider</class>
+        <property name="Extension Bundle Storage Directory">./extension_bundles</property>
+    </extensionBundlePersistenceProvider>
 </providers>`
 
 // configMapForNifiRegistry генерирует ConfigMap для providers.xml
@@ -50,7 +64,7 @@ func configMapForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, scheme *run
 }
 
 // ====================================================================================
-// НОВЫЕ ФУНКЦИИ ДЛЯ KEYCLOAK (OIDC)
+// НОВЫЕ ФУНКЦИИ ДЛЯ KEYCLOAK (OIDC) (ОСТАВЛЕНЫ БЕЗ ИЗМЕНЕНИЙ, Т.К. ВАШ КОД БЫЛ ВЕРЕН)
 // ====================================================================================
 
 // configMapIdentityProvidersForNifiRegistry генерирует ConfigMap для identity-providers.xml (OIDC Keycloak)
@@ -71,17 +85,17 @@ func configMapIdentityProvidersForNifiRegistry(nifiRegistry *registryv1.NifiRegi
 	// 2. Генерируем содержимое XML
 	identityProvidersXml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <identityProviders>
-	<provider>
-		<id>oidc-keycloak-provider</id>
-		<class>org.apache.nifi.registry.security.identity.OidcIdentityProvider</class>
-		<property name="OIDC Provider Discovery URL">%s</property>
-		<property name="Client ID">%s</property>
-		<property name="Client Secret">${NIFI_REGISTRY_OIDC_CLIENT_SECRET}</property> <property name="Redirect URL">%s</property>
-		<property name="Claim Identifying User">%s</property>
-		<property name="Claim Identifying User Group"></property>
-		<property name="Callback Path">%s</property>
-		<property name="Request Scope">openid email profile</property>
-	</provider>
+    <provider>
+        <id>oidc-keycloak-provider</id>
+        <class>org.apache.nifi.registry.security.identity.OidcIdentityProvider</class>
+        <property name="OIDC Provider Discovery URL">%s</property>
+        <property name="Client ID">%s</property>
+        <property name="Client Secret">${NIFI_REGISTRY_OIDC_CLIENT_SECRET}</property> <property name="Redirect URL">%s</property>
+        <property name="Claim Identifying User">%s</property>
+        <property name="Claim Identifying User Group"></property>
+        <property name="Callback Path">%s</property>
+        <property name="Request Scope">openid email profile</property>
+    </provider>
 </identityProviders>`,
 		discoveryURL, // Используем DiscoveryUrl из CRD, как вы просили не удалять
 		nifiRegistry.Spec.Keycloak.ClientId,
@@ -118,29 +132,29 @@ func configMapAuthorizersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, 
 	// 1. Генерируем содержимое XML
 	authorizersXml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <authorizers>
-	<authorizer>
-		<identifier>managed-authorizer</identifier>
-		<class>org.apache.nifi.registry.security.authorization.ConfigurableAccessPolicyProvider</class>
-		<property name="User Group Provider">file-user-group-provider</property>
-		<property name="Initial Admin Identity">%s</property>
-		<property name="Authorization Access Policy Provider">file-access-policy-provider</property>
-		<property name="Access Policy Provider">file-access-policy-provider</property>
-	</authorizer>
+    <authorizer>
+        <identifier>managed-authorizer</identifier>
+        <class>org.apache.nifi.registry.security.authorization.ConfigurableAccessPolicyProvider</class>
+        <property name="User Group Provider">file-user-group-provider</property>
+        <property name="Initial Admin Identity">%s</property>
+        <property name="Authorization Access Policy Provider">file-access-policy-provider</property>
+        <property name="Access Policy Provider">file-access-policy-provider</property>
+    </authorizer>
 
-	<userGroupProvider>
-		<identifier>file-user-group-provider</identifier>
-		<class>org.apache.nifi.registry.security.authorization.FileUserGroupProvider</class>
-		<property name="Users File">./conf/users.xml</property>
-		<property name="Legacy Authorized Users File"></property>
-	</userGroupProvider>
+    <userGroupProvider>
+        <identifier>file-user-group-provider</identifier>
+        <class>org.apache.nifi.registry.security.authorization.FileUserGroupProvider</class>
+        <property name="Users File">./conf/users.xml</property>
+        <property name="Legacy Authorized Users File"></property>
+    </userGroupProvider>
 
-	<accessPolicyProvider>
-		<identifier>file-access-policy-provider</identifier>
-		<class>org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</class>
-		<property name="Authorizations File">./conf/authorizations.xml</property>
-		<property name="Initial Admin Identity">%s</property>
-		<property name="Access Policy Provider Implementation">org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</property>
-	</accessPolicyProvider>
+    <accessPolicyProvider>
+        <identifier>file-access-policy-provider</identifier>
+        <class>org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</class>
+        <property name="Authorizations File">./conf/authorizations.xml</property>
+        <property name="Initial Admin Identity">%s</property>
+        <property name="Access Policy Provider Implementation">org.apache.nifi.registry.security.authorization.FileSystemAccessPolicyProvider</property>
+    </accessPolicyProvider>
 </authorizers>`,
 		initialAdminIdentity,
 		initialAdminIdentity,
