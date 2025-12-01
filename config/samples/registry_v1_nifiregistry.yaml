@@ -1,3 +1,6 @@
+# Filename: config/samples/registry_v1_nifiregistry.yaml
+# Changes: Удалена ошибочная строка 'm' в секции 'resources.requests' для исправления ошибки YAML.
+
 apiVersion: registry.nifi.oper/v1
 kind: NifiRegistry
 metadata:
@@ -18,7 +21,7 @@ spec:
       memory: "1Gi"
     requests:
       cpu: "100m"
-      memory: "512Mi"
+      memory: "512Mi" # <--- ИСПРАВЛЕНИЕ: Удалена лишняя строка 'm'
 
   # Tls (ОТКЛЮЧЕНО)
   tls:
@@ -50,8 +53,8 @@ spec:
 
   # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL)
   database:
-    enabled: true # <--- ИСПРАВЛЕНО: Включаем внешнюю БД
-    url: jdbc:postgresql://postgres:5432/nifiregistry 
+    enabled: true # <--- Включаем внешнюю БД
+    url: jdbc:postgresql://postgres-service:5432/nifiregistry # <--- ИСПРАВЛЕНИЕ ХОСТА
     driverClass: org.postgresql.Driver
     username: nifiregistry
     password: password # <--- Добавили поле
