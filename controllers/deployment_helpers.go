@@ -1,8 +1,8 @@
 // Filename: controllers/deployment_helpers.go
-// Changes: Добавлен Init-контейнер 'configure-registry-properties', который явно записывает
-// 			TLS и DB свойства в файл nifi-registry.properties в томе EmptyDir (/mnt/conf),
-// 			чтобы NiFi Registry корректно загрузил конфигурацию при старте.
-// 			ВНИМАНИЕ: Все скрытые неразрывные пробелы (U+00A0) были удалены и заменены на обычные пробелы.
+// Changes: 1. Добавлена опция "-Dloader.path=" + externalLibMountPath в NIFI_REGISTRY_JAVA_OPTS.
+//          2. !!! ОТМЕНА ВРЕМЕННОГО ИЗМЕНЕНИЯ !!!: Команда запуска контейнера nifiregistry-sample возвращена к
+//             стандартному скрипту запуска NiFi Registry, чтобы под начал падать с реальной ошибкой.
+//          3. Исправлена ошибка компиляции (из предыдущих шагов).
 
 package controllers
 
@@ -287,12 +287,13 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		dbUsername := nifiRegistry.Spec.Database.Username
 		dbPassword := nifiRegistry.Spec.Database.Password
 
-		// Новые опции с включением логина, пароля и принудительным классом драйвера Flyway
+		// Новые опции с включением логина, пароля, принудительным классом драйвера Flyway и loader.path
 		javaOptsValue := "-Dspring.datasource.driver-class-name=" + driverClass +
 			" -Dspring.datasource.url=" + dbUrl +
 			" -Dspring.datasource.username=" + dbUsername +
 			" -Dspring.datasource.password=" + dbPassword +
-			" -Dspring.flyway.driver-class-name=" + driverClass
+			" -Dspring.flyway.driver-class-name=" + driverClass +
+			" -Dloader.path=" + externalLibMountPath // <--- ИСПРАВЛЕНИЕ CLASSPATH
 
 		javaOptsEnv := corev1.EnvVar{
 			Name: "NIFI_REGISTRY_JAVA_OPTS",
@@ -302,7 +303,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	}
 
 	// =======================================
-	// 2. VolumeMounts (возвращен Secret VolumeMount)
+	// 2. VolumeMounts
 	// =======================================
 
 	volumeMounts := []corev1.VolumeMount{}
@@ -323,13 +324,13 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		})
 	}
 
-	// 3. Монтирование тома /conf (EmptyDir)
+	// 3. Монтирование тома /conf (EmptyDir) - для доступа Init-контейнеров
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{
 		Name: confVolumeName,
-		MountPath: confMountPath, // ПРАВИЛЬНЫЙ ПУТЬ
+		MountPath: confMountPath,
 	})
-
-	// 4. Монтирование TLS Secret (в conf/tls) - ВОЗВРАЩЕН: НЕОБХОДИМ ДЛЯ ФАЙЛОВ .jks
+	
+	// 4. Монтирование TLS Secret (в conf/tls)
 	if nifiRegistry.Spec.Tls.Enabled {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name: tlsSecretVolumeName,
@@ -364,7 +365,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	}
 
 	// =======================================
-	// 3. Volumes (возвращен Secret Volume)
+	// 3. Volumes
 	// =======================================
 
 	volumes := []corev1.Volume{}
@@ -401,7 +402,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		},
 	})
 
-	// 4. Том для Secret (TLS Keystore/Truststore) - ВОЗВРАЩЕН: НЕОБХОДИМ ДЛЯ ФАЙЛОВ .jks
+	// 4. Том для Secret (TLS Keystore/Truststore)
 	if nifiRegistry.Spec.Tls.Enabled {
 		volumes = append(volumes, corev1.Volume{
 			Name: tlsSecretVolumeName,
@@ -519,11 +520,11 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 							Name: nifiRegistry.Name,
 							Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
 							// ******************************************************************************
-							// * ИСПРАВЛЕНИЕ: ЯВНОЕ ОПРЕДЕЛЕНИЕ COMMAND И ARGS ДЛЯ УДЕРЖАНИЯ ПРОЦЕССА *
+							// * ОТМЕНА ВРЕМЕННОГО ИЗМЕНЕНИЯ: Возврат к стандартному запуску NiFi Registry *
 							// ******************************************************************************
-							Command: []string{"/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh"},
-							Args: []string{"run"},
-							// ******************************************************************************
+							Command: []string{"/bin/bash", "-c", "/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh run &"},
+							Args:    []string{},
+							
 							Ports: containerPorts, // Используем обновленный список портов
 							Env: envVars,
 							Resources: corev1.ResourceRequirements{
