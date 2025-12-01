@@ -54,7 +54,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	// 1. Контейнер: Копирует конфигурацию из образа в EmptyDir (делает ее доступной для записи)
 	// ЭТОТ КОНТЕЙНЕР НУЖЕН ВСЕГДА
 	initContainers = append(initContainers, corev1.Container{
-		Name:    "copy-conf",
+		Name:  "copy-conf",
 		Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag, // Используем основной образ
 		Command: []string{
 			"sh",
@@ -117,7 +117,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 		finalCommand := fmt.Sprintf("set -xe; %s", updateCommand)
 
 		initContainers = append(initContainers, corev1.Container{
-			Name:    "configure-registry-properties",
+			Name:  "configure-registry-properties",
 			Image: "busybox", // Легкий образ с sh/sed/echo
 			Command: []string{
 				"sh",
@@ -136,7 +136,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	// 4. Контейнер: Скачивает драйвер PostgreSQL (если БД включена) - ПЕРЕМЕЩЕН В КОНЕЦ
 	if nifiRegistry.Spec.Database.Enabled {
 		initContainers = append(initContainers, corev1.Container{
-			Name:    "download-db-driver",
+			Name:  "download-db-driver",
 			Image: "curlimages/curl:latest", // Используем легкий образ с curl для скачивания
 			Command: []string{
 				"sh",
