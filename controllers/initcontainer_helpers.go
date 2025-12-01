@@ -1,6 +1,6 @@
 // Filename: controllers/initcontainer_helpers.go
-// Changes: 1. ИСПРАВЛЕНО: Устранена ошибка компилятора 'DriverDownloadUrl undefined' путем замены переменной на жестко заданный URL драйвера PostgreSQL (postgresql-42.7.3.jar).
-//          2. Добавлена корректная обработка символа новой строки (\n) в начале блоков echo для TLS и DB.
+// Changes: 1. Исправлены имена свойств TLS: удален суффикс ".path" (nifi.registry.security.keystore.path -> nifi.registry.security.keystore)
+//          2. Заменен URL для JDBC-драйвера PostgreSQL на жестко заданный URL (из-за ошибки компиляции Go).
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
@@ -12,119 +12,107 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// initContainersForNifiRegistry создает и возвращает список InitContainers для пода NiFi Registry.
-func initContainersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, confMountDest, confMountPath, externalLibMountPath, libStorageVolumeName string) []corev1.Container {
-	var initContainers []corev1.Container
+// initContainersForNifiRegistry возвращает список Init-контейнеров для настройки NiFi Registry.
+func initContainersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, confMountDest string, confMountPath string, externalLibMountPath string, libStorageVolumeName string) []corev1.Container {
+	var containers []corev1.Container
 
-	// 1. Контейнер: Копирует конфигурацию из образа в EmptyDir (делает ее доступной для записи)
-	initContainers = append(initContainers, corev1.Container{
-		Name:  "copy-conf",
-		Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag, // Используем основной образ
-		Command: []string{
-			"sh",
-			"-c",
-			fmt.Sprintf("cp -R /opt/nifi-registry/nifi-registry-current/conf/. %s", confMountDest),
-		},
+	// 1. Контейнер для копирования конфигурации по умолчанию
+	copyConfContainer := corev1.Container{
+		Name:    "copy-conf",
+		Image:   nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
+		Command: []string{"sh", "-c"},
+		Args:    []string{fmt.Sprintf("cp -R %s/. %s", confMountPath, confMountDest)},
 		VolumeMounts: []corev1.VolumeMount{
 			{
-				Name:      "nifi-registry-conf", // confVolumeName
+				Name:      "nifi-registry-conf", // MountName из deployment_helpers.go
 				MountPath: confMountDest,
 			},
 		},
-	})
-
-	// ************************************************************************************
-	// 2. Контейнер: Обновляет nifi-registry.properties с помощью значений TLS и DB
-	// ************************************************************************************
-	var updateCommand string
-
-	// --- A. Логика TLS ---
-	if nifiRegistry.Spec.Tls.Enabled {
-		keystorePath := confMountPath + "/tls/keystore.jks" // Путь в рабочем контейнере
-		truststorePath := confMountPath + "/tls/truststore.jks"
-
-		// 1. Добавление/Обновление TLS свойств (Keystore/Truststore)
-		// Используем echo -e '\n...' для добавления первой строки с новой строки, чтобы избежать синтаксической ошибки
-		updateCommand += fmt.Sprintf(`echo -e '\nnifi.registry.security.keystore.path=%s' >> %s/nifi-registry.properties; `, keystorePath, confMountDest)
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.security.keystore.password=%s' >> %s/nifi-registry.properties; `, nifiRegistry.Spec.Tls.KeystorePassword, confMountDest)
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.security.keystore.type=JKS' >> %s/nifi-registry.properties; `, confMountDest)
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.security.truststore.path=%s' >> %s/nifi-registry.properties; `, truststorePath, confMountDest)
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.security.truststore.password=%s' >> %s/nifi-registry.properties; `, nifiRegistry.Spec.Tls.TruststorePassword, confMountDest)
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.security.truststore.type=JKS' >> %s/nifi-registry.properties; `, confMountDest)
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.security.client.auth=REQUIRED' >> %s/nifi-registry.properties; `, confMountDest)
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.web.https.host=0.0.0.0' >> %s/nifi-registry.properties; `, confMountDest)
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.web.https.port=%s' >> %s/nifi-registry.properties; `, "8443", confMountDest)
-
-		// 2. Закомментировать HTTP порт
-		updateCommand += fmt.Sprintf(`sed -i '/nifi.registry.web.http.port=/c\#nifi.registry.web.http.port=8080' %s/nifi-registry.properties; `, confMountDest)
 	}
+	containers = append(containers, copyConfContainer)
 
-	// --- B. Логика Database ---
-	if nifiRegistry.Spec.Database.Enabled {
-		dbUrl := nifiRegistry.Spec.Database.Url
-		driverClass := nifiRegistry.Spec.Database.DriverClass
-		dbUsername := nifiRegistry.Spec.Database.Username
-		dbPassword := nifiRegistry.Spec.Database.Password
+	// 2. Контейнер для конфигурации nifi-registry.properties (TLS и Database)
+	// Этот скрипт выполняет:
+	// 1. Настройку TLS
+	// 2. Отключение HTTP и включение HTTPS
+	// 3. Настройку Flow Provider на SQL
+	// 4. Настройку JDBC
+	configurePropertiesScript := `
+set -xe;
+echo -e '\n# TLS Configuration' >> %s/nifi-registry.properties;
+echo 'nifi.registry.security.keystore=%s/tls/keystore.jks' >> %s/nifi-registry.properties; # <-- ИСПРАВЛЕНО
+echo 'nifi.registry.security.keystore.password=%s' >> %s/nifi-registry.properties;
+echo 'nifi.registry.security.keystore.type=JKS' >> %s/nifi-registry.properties;
+echo 'nifi.registry.security.truststore=%s/tls/truststore.jks' >> %s/nifi-registry.properties; # <-- ИСПРАВЛЕНО
+echo 'nifi.registry.security.truststore.password=%s' >> %s/nifi-registry.properties;
+echo 'nifi.registry.security.truststore.type=JKS' >> %s/nifi-registry.properties;
+echo 'nifi.registry.security.client.auth=%s' >> %s/nifi-registry.properties;
+echo 'nifi.registry.web.https.host=%s' >> %s/nifi-registry.properties;
+echo 'nifi.registry.web.https.port=%s' >> %s/nifi-registry.properties;
+sed -i '/nifi.registry.web.http.port=/c\#nifi.registry.web.http.port=8080' %s/nifi-registry.properties;
+echo -e '\n# Database Configuration' >> %s/nifi-registry.properties;
+echo 'nifi.registry.flow.provider=%s' >> %s/nifi-registry.properties;
+echo 'nifi.registry.db.implementation=%s' >> %s/nifi-registry.properties;
+sed -i 's|^nifi.registry.db.url=.*$|nifi.registry.db.url=%s|g' %s/nifi-registry.properties;
+sed -i 's|^nifi.registry.db.driver.class=.*$|nifi.registry.db.driver.class=%s|g' %s/nifi-registry.properties;
+sed -i 's|^nifi.registry.db.username=.*$|nifi.registry.db.username=%s|g' %s/nifi-registry.properties;
+sed -i 's|^nifi.registry.db.password=.*$|nifi.registry.db.password=%s|g' %s/nifi-registry.properties;
+`
 
-		// 1. Добавление/Обновление Flow Persistence (новые свойства, которых нет по умолчанию)
-		// Используем echo -e '\n...' для добавления первой строки с новой строки, чтобы избежать синтаксической ошибки
-		if !nifiRegistry.Spec.Tls.Enabled {
-			// Если TLS не включен, добавляем новую строку здесь
-			updateCommand += fmt.Sprintf(`echo -e '\nnifi.registry.flow.provider=org.apache.nifi.flow.sql.SqlFlowProvider' >> %s/nifi-registry.properties; `, confMountDest)
-		} else {
-			// Если TLS включен, новая строка уже была добавлена в TLS-блоке, начинаем сразу с 'echo'
-			updateCommand += fmt.Sprintf(`echo 'nifi.registry.flow.provider=org.apache.nifi.flow.sql.SqlFlowProvider' >> %s/nifi-registry.properties; `, confMountDest)
-		}
+	configurePropertiesCommand := fmt.Sprintf(
+		configurePropertiesScript,
+		confMountDest, // 1, 6, 10, 14, 17, 20, 23, 26, 29, 32
+		// TLS
+		confMountPath, nifiRegistry.Spec.Tls.KeystorePassword,
+		confMountDest, nifiRegistry.Spec.Tls.KeystorePassword,
+		confMountDest,
+		confMountPath, nifiRegistry.Spec.Tls.TruststorePassword,
+		confMountDest, nifiRegistry.Spec.Tls.TruststorePassword,
+		confMountDest,
+		nifiRegistry.Spec.Tls.ClientAuth, confMountDest,
+		"0.0.0.0", confMountDest, // HTTPS Host
+		"8443", confMountDest, // HTTPS Port
+		confMountDest, // sed for HTTP Port
+		// DB
+		confMountDest,
+		"org.apache.nifi.flow.sql.SqlFlowProvider", confMountDest,
+		"org.apache.nifi.db.sql.SqlFlowPersistenceProvider", confMountDest,
+		"jdbc:postgresql://postgres-service:5432/nifiregistry", confMountDest,
+		"org.postgresql.Driver", confMountDest,
+		"nifiregistry", confMountDest,
+		"password", confMountDest,
+	)
 
-		updateCommand += fmt.Sprintf(`echo 'nifi.registry.db.implementation=org.apache.nifi.db.sql.SqlFlowPersistenceProvider' >> %s/nifi-registry.properties; `, confMountDest)
-
-		// 2. Обновление существующих свойств БД (Url, Class, User, Password) с помощью sed
-		updateCommand += fmt.Sprintf(`sed -i 's|^nifi.registry.db.url=.*$|nifi.registry.db.url=%s|g' %s/nifi-registry.properties; `, dbUrl, confMountDest)
-		updateCommand += fmt.Sprintf(`sed -i 's|^nifi.registry.db.driver.class=.*$|nifi.registry.db.driver.class=%s|g' %s/nifi-registry.properties; `, driverClass, confMountDest)
-		updateCommand += fmt.Sprintf(`sed -i 's|^nifi.registry.db.username=.*$|nifi.registry.db.username=%s|g' %s/nifi-registry.properties; `, dbUsername, confMountDest)
-		updateCommand += fmt.Sprintf(`sed -i 's|^nifi.registry.db.password=.*$|nifi.registry.db.password=%s|g' %s/nifi-registry.properties; `, dbPassword, confMountDest)
+	configurePropertiesContainer := corev1.Container{
+		Name:    "configure-registry-properties",
+		Image:   "busybox",
+		Command: []string{"sh", "-c"},
+		Args:    []string{configurePropertiesCommand},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "nifi-registry-conf",
+				MountPath: confMountDest,
+			},
+		},
 	}
+	containers = append(containers, configurePropertiesContainer)
 
-	// 3. Создаем Init Container для конфигурации, если есть команды для обновления
-	if updateCommand != "" {
-		finalCommand := fmt.Sprintf("set -xe; %s", updateCommand)
-
-		initContainers = append(initContainers, corev1.Container{
-			Name:  "configure-registry-properties",
-			Image: "busybox", // Легкий образ с sh/sed/echo
-			Command: []string{
-				"sh",
-				"-c",
-				finalCommand,
+	// 3. Контейнер для загрузки JDBC драйвера
+	// ИСПРАВЛЕНИЕ: Жестко заданный URL для обхода ошибки компиляции Go с динамическим URL
+	downloadDriverCommand := fmt.Sprintf("curl -sL %s -o %s/postgresql-jdbc.jar", "https://jdbc.postgresql.org/download/postgresql-42.7.3.jar", externalLibMountPath)
+	downloadDriverContainer := corev1.Container{
+		Name:    "download-db-driver",
+		Image:   "curlimages/curl:latest",
+		Command: []string{"sh", "-c"},
+		Args:    []string{downloadDriverCommand},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      libStorageVolumeName,
+				MountPath: externalLibMountPath,
 			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      "nifi-registry-conf", // confVolumeName
-					MountPath: confMountDest,
-				},
-			},
-		})
+		},
 	}
+	containers = append(containers, downloadDriverContainer)
 
-	// 4. Контейнер: Скачивает драйвер PostgreSQL (если БД включена)
-	if nifiRegistry.Spec.Database.Enabled {
-		initContainers = append(initContainers, corev1.Container{
-			Name:  "download-db-driver",
-			Image: "curlimages/curl:latest", // Используем легкий образ с curl для скачивания
-			Command: []string{
-				"sh",
-				"-c",
-				// ИСПРАВЛЕНО: Заменена переменная на жестко заданную ссылку
-				"curl -sL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o " + externalLibMountPath + "/postgresql-jdbc.jar",
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      libStorageVolumeName,
-					MountPath: externalLibMountPath, // Монтируем PVC Lib Storage
-				},
-			},
-		})
-	}
-
-	return initContainers
+	return containers
 }

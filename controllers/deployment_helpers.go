@@ -1,6 +1,5 @@
 // Filename: controllers/deployment_helpers.go
-// Changes: 1. ВРЕМЕННОЕ ИЗМЕНЕНИЕ: Команда запуска изменена на "sleep infinity" для дебага
-//             (чтобы под не падал и мы могли проверить logs/nifi-registry.log через kubectl exec).
+// Changes: 1. Удалено ВРЕМЕННОЕ ИЗМЕНЕНИЕ: удалена команда "sleep infinity", чтобы NiFi Registry начал запуск.
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
@@ -83,11 +82,11 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 							Name:  nifiRegistry.Name,
 							Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
 							// **************************************************************************************
-							// * ВРЕМЕННЫЙ DEBUG-РЕЖИМ: sleep infinity для предотвращения CrashLoopBackOff         *
-							// * и возможности просмотра внутреннего лога через kubectl exec.                     *
+							// * ВРЕМЕННЫЙ DEBUG-РЕЖИМ: sleep infinity для предотвращения CrashLoopBackOff 			*
+							// * и возможности просмотра внутреннего лога через kubectl exec. 						*
 							// **************************************************************************************
-							Command: []string{"/bin/sh", "-c"},
-							Args:    []string{"sleep infinity"},
+							// Command: []string{"/bin/sh", "-c"},
+							// Args:    []string{"sleep infinity"},
 
 							Ports: containerPorts,
 							Env:   envVars,

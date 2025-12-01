@@ -219,6 +219,12 @@ spec:
                 properties:
                   adminIdentity:
                     type: string
+                  clientAuth:
+                    default: REQUIRED
+                    description: |-
+                      ДОБАВЛЕНО: Для устранения ошибки компиляции
+                      ClientAuth determines if mutual TLS is required (REQUIRED or WANTED)
+                    type: string
                   enabled:
                     type: boolean
                   host:

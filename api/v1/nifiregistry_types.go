@@ -1,5 +1,7 @@
 // Filename: api/v1/nifiregistry_types.go
-// Changes: Updated KeycloakSpec to include fields for OIDC configuration (Enabled, ExternalURL, Realm, InitialAdminIdentity).
+// Changes: 1. Удалены все неразрывные пробелы (U+00A0) и заменены на стандартные пробелы (U+0020).
+//          2. Добавлено поле ClientAuth в структуру TlsSpec для устранения ошибки компиляции "ClientAuth undefined".
+// ----------------------------------------------------------------------------------------------------------------
 
 package v1
 
@@ -45,6 +47,11 @@ type TlsSpec struct {
 	KeystorePassword   string `json:"keystorePassword,omitempty"`
 	TruststorePassword string `json:"truststorePassword,omitempty"`
 	AdminIdentity      string `json:"adminIdentity,omitempty"`
+
+	// ДОБАВЛЕНО: Для устранения ошибки компиляции
+	// ClientAuth determines if mutual TLS is required (REQUIRED or WANTED)
+	// +kubebuilder:default="REQUIRED"
+	ClientAuth string `json:"clientAuth,omitempty"` // <-- ДОБАВЛЕНО
 }
 
 // KeycloakSpec defines the OIDC settings for Keycloak
@@ -137,7 +144,7 @@ type NifiRegistrySpec struct {
 
 // NifiRegistryStatus defines the observed state of NifiRegistry
 type NifiRegistryStatus struct {
-	// INSERT ADDITIONAL STATUS FIELDS - define status fields
+	// INSERT ADDITIONAL STATUS FIELD - define status fields
 	// Important: Run "make manifests" to regenerate code after modifying this file
 }
 
