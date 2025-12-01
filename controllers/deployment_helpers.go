@@ -1,5 +1,5 @@
 // Filename: controllers/deployment_helpers.go
-// Changes: 1. Удалено ВРЕМЕННОЕ ИЗМЕНЕНИЕ: удалена команда "sleep infinity", чтобы NiFi Registry начал запуск.
+// Changes: 1. Добавлены объявление томов и монтирование ConfigMap для Keycloak (identity-providers.xml, authorizers.xml)
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
@@ -32,10 +32,18 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	confVolumeName := "nifi-registry-conf" // EmptyDir для конфигурации (для InitContainer)
 	tlsSecretVolumeName := "tls-keystore"  // Том для Secret TLS
 
+	// НОВЫЕ ТОМЫ ДЛЯ KEYCLOAK CONFIGMAP
+	identityConfVolumeName := nifiRegistry.Name + "-identity-cm"
+	authorizersConfVolumeName := nifiRegistry.Name + "-authorizers-cm"
+
 	// ПУТИ
 	externalLibMountPath := "/opt/nifi-registry/external_lib"
 	confMountPath := "/opt/nifi-registry/nifi-registry-current/conf"
 	confMountDest := "/mnt/conf" // Путь в Init-контейнерах
+
+	// ПУТИ МОНТИРОВАНИЯ KEYCLOAK
+	identityConfMountPath := confMountPath + "/identity-providers.xml"
+	authorizersConfMountPath := confMountPath + "/authorizers.xml"
 
 	// =======================================
 	// 2. Сборка компонентов
@@ -50,8 +58,52 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	// 2.3 Volumes (из volume_helpers.go)
 	volumes := volumesForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName)
 
+	// ДОБАВЛЕНИЕ ТОМОВ KEYCLOAK
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// Том для identity-providers.xml
+		volumes = append(volumes, corev1.Volume{
+			Name: identityConfVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: nifiRegistry.Name + "-identity-providers-cm",
+					},
+				},
+			},
+		})
+		// Том для authorizers.xml
+		volumes = append(volumes, corev1.Volume{
+			Name: authorizersConfVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: nifiRegistry.Name + "-authorizers-cm",
+					},
+				},
+			},
+		})
+	}
+
 	// 2.4 VolumeMounts (из volume_helpers.go)
 	volumeMounts := volumeMountsForNifiRegistry(nifiRegistry, flowStorageVolumeName, libStorageVolumeName, confVolumeName, tlsSecretVolumeName, confMountPath, externalLibMountPath)
+
+	// ДОБАВЛЕНИЕ МОНТИРОВАНИЯ KEYCLOAK
+	if nifiRegistry.Spec.Keycloak.Enabled {
+		// Монтирование identity-providers.xml
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      identityConfVolumeName,
+			MountPath: identityConfMountPath,
+			SubPath:   "identity-providers.xml",
+			ReadOnly:  true,
+		})
+		// Монтирование authorizers.xml
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      authorizersConfVolumeName,
+			MountPath: authorizersConfMountPath,
+			SubPath:   "authorizers.xml",
+			ReadOnly:  true,
+		})
+	}
 
 	// =======================================
 	// 3. Создание Deployment
@@ -81,12 +133,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 						{
 							Name:  nifiRegistry.Name,
 							Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
-							// **************************************************************************************
-							// * ВРЕМЕННЫЙ DEBUG-РЕЖИМ: sleep infinity для предотвращения CrashLoopBackOff 			*
-							// * и возможности просмотра внутреннего лога через kubectl exec. 						*
-							// **************************************************************************************
-							// Command: []string{"/bin/sh", "-c"},
-							// Args:    []string{"sleep infinity"},
+							// Command и Args убраны (больше не в DEBUG-режиме)
 
 							Ports: containerPorts,
 							Env:   envVars,

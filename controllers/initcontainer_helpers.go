@@ -1,6 +1,6 @@
 // Filename: controllers/initcontainer_helpers.go
-// Changes: 1. Исправлены имена свойств TLS: удален суффикс ".path" (nifi.registry.security.keystore.path -> nifi.registry.security.keystore)
-//          2. Заменен URL для JDBC-драйвера PostgreSQL на жестко заданный URL (из-за ошибки компиляции Go).
+// Changes: 1. Исправлена ошибка подсчета аргументов в fmt.Sprintf, вызвавшая ошибку "reads arg #37, but call has only 36 args".
+//          2. Использован образ bash:latest для Init-контейнера.
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
@@ -31,25 +31,26 @@ func initContainersForNifiRegistry(nifiRegistry *registryv1.NifiRegistry, confMo
 	}
 	containers = append(containers, copyConfContainer)
 
-	// 2. Контейнер для конфигурации nifi-registry.properties (TLS и Database)
-	// Этот скрипт выполняет:
-	// 1. Настройку TLS
-	// 2. Отключение HTTP и включение HTTPS
-	// 3. Настройку Flow Provider на SQL
-	// 4. Настройку JDBC
+	// =====================================================================================================
+	// 2. Контейнер для конфигурации nifi-registry.properties (TLS, Database, Keycloak)
+	// =====================================================================================================
 	configurePropertiesScript := `
 set -xe;
+
+# TLS Configuration
 echo -e '\n# TLS Configuration' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.keystore=%s/tls/keystore.jks' >> %s/nifi-registry.properties; # <-- ИСПРАВЛЕНО
+echo 'nifi.registry.security.keystore=%s/tls/keystore.jks' >> %s/nifi-registry.properties;
 echo 'nifi.registry.security.keystore.password=%s' >> %s/nifi-registry.properties;
 echo 'nifi.registry.security.keystore.type=JKS' >> %s/nifi-registry.properties;
-echo 'nifi.registry.security.truststore=%s/tls/truststore.jks' >> %s/nifi-registry.properties; # <-- ИСПРАВЛЕНО
+echo 'nifi.registry.security.truststore=%s/tls/truststore.jks' >> %s/nifi-registry.properties;
 echo 'nifi.registry.security.truststore.password=%s' >> %s/nifi-registry.properties;
 echo 'nifi.registry.security.truststore.type=JKS' >> %s/nifi-registry.properties;
 echo 'nifi.registry.security.client.auth=%s' >> %s/nifi-registry.properties;
 echo 'nifi.registry.web.https.host=%s' >> %s/nifi-registry.properties;
 echo 'nifi.registry.web.https.port=%s' >> %s/nifi-registry.properties;
 sed -i '/nifi.registry.web.http.port=/c\#nifi.registry.web.http.port=8080' %s/nifi-registry.properties;
+
+# Database Configuration
 echo -e '\n# Database Configuration' >> %s/nifi-registry.properties;
 echo 'nifi.registry.flow.provider=%s' >> %s/nifi-registry.properties;
 echo 'nifi.registry.db.implementation=%s' >> %s/nifi-registry.properties;
@@ -57,41 +58,65 @@ sed -i 's|^nifi.registry.db.url=.*$|nifi.registry.db.url=%s|g' %s/nifi-registry.
 sed -i 's|^nifi.registry.db.driver.class=.*$|nifi.registry.db.driver.class=%s|g' %s/nifi-registry.properties;
 sed -i 's|^nifi.registry.db.username=.*$|nifi.registry.db.username=%s|g' %s/nifi-registry.properties;
 sed -i 's|^nifi.registry.db.password=.*$|nifi.registry.db.password=%s|g' %s/nifi-registry.properties;
+
+# Keycloak/OIDC Configuration (если включен)
+if [ "%t" = "true" ]; then
+    echo -e '\n# OIDC Configuration' >> %s/nifi-registry.properties;
+    echo 'nifi.registry.security.identity.providers.configuration.file=%s/identity-providers.xml' >> %s/nifi-registry.properties;
+    echo 'nifi.registry.security.authorizer.configuration.file=%s/authorizers.xml' >> %s/nifi-registry.properties;
+fi
 `
 
 	configurePropertiesCommand := fmt.Sprintf(
 		configurePropertiesScript,
-		confMountDest, // 1, 6, 10, 14, 17, 20, 23, 26, 29, 32
-		// TLS
-		confMountPath, nifiRegistry.Spec.Tls.KeystorePassword,
-		confMountDest, nifiRegistry.Spec.Tls.KeystorePassword,
-		confMountDest,
-		confMountPath, nifiRegistry.Spec.Tls.TruststorePassword,
-		confMountDest, nifiRegistry.Spec.Tls.TruststorePassword,
-		confMountDest,
-		nifiRegistry.Spec.Tls.ClientAuth, confMountDest,
-		"0.0.0.0", confMountDest, // HTTPS Host
-		"8443", confMountDest, // HTTPS Port
-		confMountDest, // sed for HTTP Port
-		// DB
-		confMountDest,
-		"org.apache.nifi.flow.sql.SqlFlowProvider", confMountDest,
-		"org.apache.nifi.db.sql.SqlFlowPersistenceProvider", confMountDest,
-		"jdbc:postgresql://postgres-service:5432/nifiregistry", confMountDest,
-		"org.postgresql.Driver", confMountDest,
-		"nifiregistry", confMountDest,
-		"password", confMountDest,
+		confMountDest, // 1. (TLS start)
+
+		// TLS properties: 14 аргументов (2 * 7)
+		confMountPath, confMountDest, // 2, 3. keystore path/confMountDest
+		nifiRegistry.Spec.Tls.KeystorePassword, confMountDest, // 4, 5. keystore password/confMountDest
+		confMountDest, // 6. keystore type (>> %s)
+
+		confMountPath, confMountDest, // 7, 8. truststore path/confMountDest
+		nifiRegistry.Spec.Tls.TruststorePassword, confMountDest, // 9, 10. truststore password/confMountDest
+		confMountDest, // 11. truststore type (>> %s)
+
+		nifiRegistry.Spec.Tls.ClientAuth, confMountDest, // 12, 13. client auth/confMountDest
+
+		"0.0.0.0", confMountDest, // 14, 15. HTTPS Host/confMountDest
+		"8443", confMountDest, // 16, 17. HTTPS Port/confMountDest
+		confMountDest, // 18. sed for HTTP Port
+
+		// DB properties: 12 аргументов
+		confMountDest, // 19. (DB start)
+		"org.apache.nifi.flow.sql.SqlFlowProvider", confMountDest, // 20, 21. flow provider/confMountDest
+		"org.apache.nifi.registry.db.sql.SqlFlowPersistenceProvider", confMountDest, // 22, 23. db implementation/confMountDest
+		nifiRegistry.Spec.Database.Url, confMountDest, // 24, 25. db url/confMountDest
+		nifiRegistry.Spec.Database.DriverClass, confMountDest, // 26, 27. db driver class/confMountDest
+		nifiRegistry.Spec.Database.Username, confMountDest, // 28, 29. db username/confMountDest
+		nifiRegistry.Spec.Database.Password, confMountDest, // 30, 31. db password/confMountDest
+
+		// Keycloak/OIDC: 6 аргументов (32-37)
+		nifiRegistry.Spec.Keycloak.Enabled, // 32. %t
+		confMountDest, // 33. confMountDest (echo start)
+		confMountPath, confMountDest, // 34, 35. identity providers path/confMountDest
+		confMountPath, confMountDest, // 36, 37. authorizers path/confMountDest
 	)
 
 	configurePropertiesContainer := corev1.Container{
 		Name:    "configure-registry-properties",
-		Image:   "busybox",
+		Image:   "bash:latest", // Используем стандартный образ bash
 		Command: []string{"sh", "-c"},
 		Args:    []string{configurePropertiesCommand},
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      "nifi-registry-conf",
 				MountPath: confMountDest,
+			},
+			// Добавление VolumeMount для Secret TLS
+			{
+				Name:      "tls-keystore",
+				MountPath: confMountPath + "/tls", // /opt/nifi-registry/nifi-registry-current/conf/tls
+				ReadOnly:  true,
 			},
 		},
 	}
