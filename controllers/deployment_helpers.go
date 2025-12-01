@@ -1,12 +1,7 @@
 // Filename: controllers/deployment_helpers.go
-// Changes: 1. Добавлена опция "-Dloader.path=" + externalLibMountPath в NIFI_REGISTRY_JAVA_OPTS.
-//          2. !!! ОТМЕНА ВРЕМЕННОГО ИЗМЕНЕНИЯ !!!: Команда запуска контейнера nifiregistry-sample возвращена к
-//             стандартному скрипту запуска NiFi Registry, чтобы под начал падать с реальной ошибкой.
-//          3. Исправлена ошибка компиляции (из предыдущих шагов).
-// ----------------------------------------------------------------------------------------------------------------
-// ДОПОЛНИТЕЛЬНОЕ ИСПРАВЛЕНИЕ ДЛЯ ЛОГОВ:
-// 4. Команда запуска изменена на запуск в фоне и tail -f logs/nifi-registry-app.log,
-//    чтобы принудительно вывести логи запуска в stdout и устранить 'Defaulted container' ошибку.
+// Changes: 1. КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Путь монтирования внешних библиотек (externalLibMountPath) изменен с
+//             /opt/nifi-registry/external_lib на СТАНДАРТНЫЙ КАТАЛОГ LIB: /opt/nifi-registry/nifi-registry-current/lib
+//             Это гарантирует, что JDBC драйвер будет автоматически добавлен в Classpath JVM.
 // ----------------------------------------------------------------------------------------------------------------
 
 package controllers
@@ -39,7 +34,8 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	tlsSecretVolumeName := "tls-keystore"  // Том для Secret TLS
 
 	// ПУТЬ ДЛЯ ВНЕШНИХ ДРАЙВЕРОВ
-	externalLibMountPath := "/opt/nifi-registry/external_lib"
+	// ******* КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ *******
+	externalLibMountPath := "/opt/nifi-registry/nifi-registry-current/lib"
 
 	// ПУТЬ ДЛЯ ФАЙЛОВ КОНФИГУРАЦИИ
 	confMountPath := "/opt/nifi-registry/nifi-registry-current/conf"
@@ -296,7 +292,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 			" -Dspring.datasource.username=" + dbUsername +
 			" -Dspring.datasource.password=" + dbPassword +
 			" -Dspring.flyway.driver-class-name=" + driverClass +
-			" -Dloader.path=" + externalLibMountPath // <--- ИСПРАВЛЕНИЕ CLASSPATH
+			" -Dloader.path=" + externalLibMountPath // <--- ИСПОЛЬЗУЕТ НОВЫЙ, ИСПРАВЛЕННЫЙ CLASSPATH
 
 		javaOptsEnv := corev1.EnvVar{
 			Name:  "NIFI_REGISTRY_JAVA_OPTS",
@@ -323,7 +319,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 	if nifiRegistry.Spec.LibStorage.Enabled || nifiRegistry.Spec.Database.Enabled {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      libStorageVolumeName,
-			MountPath: externalLibMountPath, // Монтируем внешний Lib в /external_lib
+			MountPath: externalLibMountPath, // Монтируем внешний Lib в /lib
 		})
 	}
 
@@ -523,7 +519,7 @@ func deploymentForNifiRegistry(nifiRegistry *registryv1.NifiRegistry) *appsv1.De
 							Name:  nifiRegistry.Name,
 							Image: nifiRegistry.Spec.Image.Repository + ":" + nifiRegistry.Spec.Image.Tag,
 							// ******************************************************************************
-							// * ИЗМЕНЕНИЕ: Запуск в фоне и tail -f для вывода логов в stdout.               *
+							// * ИЗМЕНЕНИЕ: Запуск в фоне и tail -f для вывода логов в stdout.               *
 							// ******************************************************************************
 							Command: []string{"/bin/bash", "-c", "/opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh run & tail -f /opt/nifi-registry/nifi-registry-current/logs/nifi-registry-app.log"},
 							Args:    []string{},
