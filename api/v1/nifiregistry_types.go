@@ -1,6 +1,6 @@
 // Filename: api/v1/nifiregistry_types.go
-// Changes: 
-//          1. ДОБАВЛЕНО поле DriverDownloadURL в структуру DatabaseSpec для устранения ошибки компиляции 
+// Changes:
+//          1. ДОБАВЛЕНО поле DriverDownloadURL в структуру DatabaseSpec для устранения ошибки компиляции
 //             в controllers/initcontainer_helpers.go, Шаг 254.
 //          2. Сохранены поля ClientAuth и InitImage из предыдущих шагов.
 // ----------------------------------------------------------------------------------------------------------------
@@ -30,29 +30,29 @@ type LibStorageSpec struct {
 
 // FlowStorageSpec определяет настройки для хранилища NiFi Registry
 type FlowStorageSpec struct {
-	Enabled 	 bool 	`json:"enabled,omitempty"`
-	Size 		 string `json:"size,omitempty"`
+	Enabled      bool   `json:"enabled,omitempty"`
+	Size         string `json:"size,omitempty"`
 	StorageClass string `json:"storageClass,omitempty"`
 }
 
 // ImageSpec defines the container image repository and tag
 type ImageSpec struct {
 	Repository string `json:"repository,omitempty"`
-	Tag 	   string `json:"tag,omitempty"`
+	Tag        string `json:"tag,omitempty"`
 }
 
 // TlsSpec defines the TLS configuration
 type TlsSpec struct {
-	Enabled 			 bool 	`json:"enabled,omitempty"`
-	Port 				 int32 	`json:"port,omitempty"`
-	Host 				 string `json:"host,omitempty"`
-	KeystorePassword 	 string `json:"keystorePassword,omitempty"`
-	TruststorePassword 	 string `json:"truststorePassword,omitempty"`
-	AdminIdentity 		 string `json:"adminIdentity,omitempty"`
+	Enabled            bool   `json:"enabled,omitempty"`
+	Port               int32  `json:"port,omitempty"`
+	Host               string `json:"host,omitempty"`
+	KeystorePassword   string `json:"keystorePassword,omitempty"`
+	TruststorePassword string `json:"truststorePassword,omitempty"`
+	AdminIdentity      string `json:"adminIdentity,omitempty"`
 
 	// ClientAuth determines if mutual TLS is required (REQUIRED or WANTED)
 	// +kubebuilder:default="REQUIRED"
-	ClientAuth string `json:"clientAuth,omitempty"` 
+	ClientAuth string `json:"clientAuth,omitempty"`
 }
 
 // KeycloakSpec defines the OIDC settings for Keycloak
@@ -85,29 +85,29 @@ type KeycloakSpec struct {
 
 // DatabaseSpec defines the external database connection settings
 type DatabaseSpec struct {
-	Enabled 	bool 	`json:"enabled,omitempty"`
-	Url 		string 	`json:"url,omitempty"`
-	DriverClass string 	`json:"driverClass,omitempty"`
-	Username 	string 	`json:"username,omitempty"`
-	
+	Enabled     bool   `json:"enabled,omitempty"`
+	Url         string `json:"url,omitempty"`
+	DriverClass string `json:"driverClass,omitempty"`
+	Username    string `json:"username,omitempty"`
+
 	// DriverDownloadURL is the URL from which the JDBC driver can be downloaded by an InitContainer.
 	// +optional
 	DriverDownloadURL string `json:"driverDownloadURL,omitempty"` // <-- ДОБАВЛЕНО
 
 	// +kubebuilder:validation:Required
-	Password string `json:"password,omitempty"`
+	Password   string `json:"password,omitempty"`
 	SecretName string `json:"secretName,omitempty"`
 }
 
 // PostgreSQLSpec defines the settings for the managed PostgreSQL instance
 type PostgreSQLSpec struct {
-	Enabled 	 bool 	   `json:"enabled,omitempty"`
-	Image 		 ImageSpec `json:"image,omitempty"`
-	Database 	 string 	`json:"database,omitempty"`
-	Username 	 string 	`json:"username,omitempty"`
-	Password 	 string 	`json:"password,omitempty"`
-	Size 		 string 	`json:"size,omitempty"`
-	StorageClass string 	`json:"storageClass,omitempty"`
+	Enabled      bool      `json:"enabled,omitempty"`
+	Image        ImageSpec `json:"image,omitempty"`
+	Database     string    `json:"database,omitempty"`
+	Username     string    `json:"username,omitempty"`
+	Password     string    `json:"password,omitempty"`
+	Size         string    `json:"size,omitempty"`
+	StorageClass string    `json:"storageClass,omitempty"`
 }
 
 // NifiRegistrySpec defines the desired state of NifiRegistry
@@ -125,7 +125,7 @@ type NifiRegistrySpec struct {
 
 	// InitImage is the Docker image used for all InitContainers (e.g., busybox or another base image).
 	// +optional
-	InitImage string `json:"initImage,omitempty"` 
+	InitImage string `json:"initImage,omitempty"`
 
 	// Resources defines the compute resources for the Nifi Registry Pod
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`

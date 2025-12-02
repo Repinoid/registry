@@ -44,13 +44,15 @@ spec:
                 properties:
                   driverClass:
                     type: string
+                  driverDownloadURL:
+                    description: DriverDownloadURL is the URL from which the JDBC
+                      driver can be downloaded by an InitContainer.
+                    type: string
                   enabled:
                     type: boolean
                   password:
-                    description: VVVV ДОБАВЛЕНО ЭТО ПОЛЕ VVVV
                     type: string
                   secretName:
-                    description: ^^^^ ДОБАВЛЕНО ЭТО ПОЛЕ ^^^^
                     type: string
                   url:
                     type: string
@@ -76,6 +78,10 @@ spec:
                   tag:
                     type: string
                 type: object
+              initImage:
+                description: InitImage is the Docker image used for all InitContainers
+                  (e.g., busybox or another base image).
+                type: string
               keycloak:
                 description: Keycloak defines the OIDC settings for Keycloak authentication
                 properties:
@@ -221,9 +227,8 @@ spec:
                     type: string
                   clientAuth:
                     default: REQUIRED
-                    description: |-
-                      ДОБАВЛЕНО: Для устранения ошибки компиляции
-                      ClientAuth determines if mutual TLS is required (REQUIRED or WANTED)
+                    description: ClientAuth determines if mutual TLS is required (REQUIRED
+                      or WANTED)
                     type: string
                   enabled:
                     type: boolean
