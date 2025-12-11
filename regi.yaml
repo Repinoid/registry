@@ -1,0 +1,62 @@
+# Filename: config/samples/registry_v1_nifiregistry.yaml
+# Changes: Удалена ошибочная строка 'm' в секции 'resources.requests' для исправления ошибки YAML.
+
+apiVersion: registry.nifi.oper/v1
+kind: NifiRegistry
+metadata:
+  name: nifireg
+spec:
+  # Size - количество реплик
+  size: 1
+  
+  # Используем структуру ImageSpec
+  image:
+    repository: apache/nifi-registry
+    tag: 1.24.0
+
+  # Resources
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+    requests:
+      cpu: "100m"
+      memory: "512Mi" # <--- ИСПРАВЛЕНИЕ: Удалена лишняя строка 'm'
+
+  # Tls (ОТКЛЮЧЕНО)
+  tls:
+    enabled: true
+    port: 8443
+    host: nifiregistry-sample-svc.default.svc.cluster.local
+    keystorePassword: changeit
+    truststorePassword: changeit
+    adminIdentity: "root"
+
+  # Настройки Keycloak OIDC
+  keycloak:
+    discoveryUrl: "https://keycloak.k8c.ru/realms/nifier/.well-known/openid-configuration"
+    clientId: "nifi-registry"
+    claimIdentifyingUser: "preferred_username"
+    # clientSecret: "pOgaGFLbaAZtN1qrtVWadP1JJeuB00FB"
+    clientSecretName: nifiregistry-keycloak-secret
+
+  # Настройки Flow Storage (ОСТАВЛЕНО)
+  flowStorage:
+    enabled: true
+    size: 200Mi
+    storageClass: local-path 
+
+  # Настройки Lib Storage (АКТИВИРОВАНО для ДРАЙВЕРА)
+  libStorage:
+    enabled: true # <--- АКТИВИРОВАНО для внешней БД
+    size: 100Mi
+    storageClass: local-path 
+
+  # АКТИВАЦИЯ ВНЕШНЕЙ БАЗЫ ДАННЫХ (PostgreSQL)
+  database:
+    enabled: true # <--- Включаем внешнюю БД
+    url: jdbc:postgresql://postgres-service:5432/nifiregistry # <--- ИСПРАВЛЕНИЕ ХОСТА
+    driverClass: org.postgresql.Driver
+    username: nifiregistry
+    password: password # <--- Добавили поле
+    
